@@ -265,7 +265,7 @@ parse_term(gps_t* gh) {
                 gh->p.data.gsv.sats_in_view = (uint8_t)parse_number(gh, NULL);
                 break;
             default:
-#if GPS_CFG_STATEMENT_GPGSV_SAT_DET
+#if GPS_CFG_STATEMENT_SAT_DET
                 if (gh->p.term_num >= 4 && gh->p.term_num <= 19) {  /* Check current term number */
                     uint8_t index, term_num = gh->p.term_num - 4;   /* Normalize term number from 4-19 to 0-15 */
                     uint16_t value;
@@ -282,10 +282,41 @@ parse_term(gps_t* gh) {
                         }
                     }
                 }
-#endif /* GPS_CFG_STATEMENT_GPGSV_SAT_DET */
+#endif /* GPS_CFG_STATEMENT_SAT_DET */
                 break;
         }
 #endif /* GPS_CFG_STATEMENT_GPGSV */
+
+#if GPS_CFG_STATEMENT_PUBX_SVSTATUS
+    } else if (gh->p.stat == STAT_UBX_SVSTATUS) {        /* Process PUBX SVSTATUS statement */
+        switch (gh->p.term_num) {
+            case 2:                             /* Process satellites in view */
+                gh->p.data.svstatus.sats_in_view = (uint8_t)parse_number(gh, NULL);
+                break;
+            default:
+#if GPS_CFG_STATEMENT_SAT_DET
+                if (gh->p.term_num >= 3 && gh->p.term_num <= (3 + gh->p.data.svstatus.sats_in_view * 6)) {  /* Check current term number */
+                    uint8_t index, term_num = gh->p.term_num - 3;   /* Normalize term number to 0 */
+                    uint16_t value;
+
+                    index = term_num / 6;   /* Get array index */
+                    if (index < sizeof(gh->sats_in_view_desc) / sizeof(gh->sats_in_view_desc[0])) {
+                        value = (uint16_t)parse_number(gh, NULL);   /* Parse number as integer */
+                        switch (term_num % 6) {
+                            case 0: gh->sats_in_view_desc[index].num = value; break;
+                            case 1: gh->sats_in_view_desc[index].used = (gh->p.term_str[0] == 'U'); break;
+                            case 2: gh->sats_in_view_desc[index].azimuth = value; break;
+                            case 3: gh->sats_in_view_desc[index].elevation = value; break;
+                            case 4: gh->sats_in_view_desc[index].snr = value; break;
+                            default: break;
+                        }
+                    }
+                }
+#endif /* GPS_CFG_STATEMENT_SAT_DET */
+                break;
+        }
+#endif /* GPS_CFG_STATEMENT_PUBX_SVSTATUS */
+
 #if GPS_CFG_STATEMENT_GPRMC
     } else if (gh->p.stat == STAT_RMC) {        /* Process GPRMC statement */
         switch (gh->p.term_num) {
@@ -321,6 +352,9 @@ parse_term(gps_t* gh) {
         }
         else if (gh->p.term_str[0] == '0' && gh->p.term_str[1] == '0') {
             gh->p.stat = STAT_UBX_POS;
+        }
+        else if (gh->p.term_str[0] == '0' && gh->p.term_str[1] == '3') {
+            gh->p.stat = STAT_UBX_SVSTATUS;
         }
 #if GPS_CFG_STATEMENT_PUBX_TIME
     } else if (gh->p.stat == STAT_UBX_TIME) {   /* Process PUBX (uBlox) TIME statement */
@@ -506,6 +540,10 @@ copy_from_tmp_memory(gps_t* gh) {
     } else if (gh->p.stat == STAT_GSV) {
         gh->sats_in_view = gh->p.data.gsv.sats_in_view;
 #endif /* GPS_CFG_STATEMENT_GPGSV */
+#if GPS_CFG_STATEMENT_PUBX_SVSTATUS
+    } else if (gh->p.stat == STAT_GSV) {
+        gh->sats_in_view = gh->p.data.svstatus.sats_in_view;
+#endif /* GPS_CFG_STATEMENT_PUBX_SVSTATUS */
 #if GPS_CFG_STATEMENT_GPRMC
     } else if (gh->p.stat == STAT_RMC) {
         gh->date_valid = true;

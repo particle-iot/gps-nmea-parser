@@ -110,7 +110,7 @@ extern "C" {
  *
  * \note            This statement must be enabled to parse:
  *                      - Number of satellites in view
- *                      - Optional details of each satellite in view. See \ref GPS_CFG_STATEMENT_GPGSV_SAT_DET
+ *                      - Optional details of each satellite in view. See \ref GPS_CFG_STATEMENT_SAT_DET
  */
 #ifndef GPS_CFG_STATEMENT_GPGSV
 #define GPS_CFG_STATEMENT_GPGSV             1
@@ -118,12 +118,12 @@ extern "C" {
 
 /**
  * \brief           Enables `1` or disables `0` detailed parsing of each
- *                  satellite in view for `GSV` statement.
+ *                  satellite in view for `GSV` or `PUBX SVSTATUS` statement.
  *
  * \note            When this feature is disabled, only number of "satellites in view" is parsed
  */
-#ifndef GPS_CFG_STATEMENT_GPGSV_SAT_DET
-#define GPS_CFG_STATEMENT_GPGSV_SAT_DET     0
+#ifndef GPS_CFG_STATEMENT_SAT_DET
+#define GPS_CFG_STATEMENT_SAT_DET     1
 #endif
 
 /**
@@ -177,6 +177,23 @@ extern "C" {
 #endif /* GPS_CFG_STATEMENT_PUBX_POS && !GPS_CFG_STATEMENT_PUBX */
 
 /**
+ * \brief           Enables `1` or disables `0` parsing and generation
+ *                  of PUBX (uBlox) SVSTATUS messages.
+ *
+ * \note            This is a nonstandard ublox-specific extension,
+ *                  so disabled by default.
+ *
+ *                  This configure option requires GPS_CFG_STATEMENT_PUBX
+ */
+#ifndef GPS_CFG_STATEMENT_PUBX_SVSTATUS
+#define GPS_CFG_STATEMENT_PUBX_SVSTATUS     1
+#endif
+/* Guard against accidental parser breakage */
+#if GPS_CFG_STATEMENT_PUBX_SVSTATUS && !GPS_CFG_STATEMENT_PUBX
+#error GPS_CFG_STATEMENT_PUBX must be enabled when enabling GPS_CFG_STATEMENT_PUBX_SVSTATUS
+#endif /* GPS_CFG_STATEMENT_PUBX_SVSTATUS && !GPS_CFG_STATEMENT_PUBX */
+
+/**
  * \}
  */
 
@@ -204,6 +221,7 @@ typedef struct {
     uint8_t elevation;                          /*!< Elevation value */
     uint16_t azimuth;                           /*!< Azimuth in degrees */
     uint8_t snr;                                /*!< Signal-to-noise ratio */
+    bool used;                                  /*!< true if used in the nav solution, false otherwise */
 } gps_sat_t;
 
 /**
@@ -218,6 +236,7 @@ typedef enum {
     STAT_UBX        = 5,                        /*!< UBX statement (uBlox specific) */
     STAT_UBX_TIME   = 6,                        /*!< UBX TIME statement (uBlox specific) */
     STAT_UBX_POS    = 7,                        /*!< UBX POSITION statement (uBlox specific) */
+    STAT_UBX_SVSTATUS = 8,                      /*!< UBX SVSTATUS statement (uBlox specific) */
     STAT_CHECKSUM_FAIL = UINT8_MAX              /*!< Special case, used when checksum fails */
 } gps_statement_t;
 
@@ -263,10 +282,10 @@ typedef struct {
     uint8_t satellites_ids[12];                 /*!< List of satellite IDs in use. Valid range is `0` to `sats_in_use` */
 #endif /* GPS_CFG_STATEMENT_GPGSA || __DOXYGEN__ */
 
-#if GPS_CFG_STATEMENT_GPGSV || __DOXYGEN__
+#if GPS_CFG_STATEMENT_GPGSV || GPS_CFG_STATEMENT_PUBX_SVSTATUS || __DOXYGEN__
     /* Information related to GPGSV statement */
     uint8_t sats_in_view;                       /*!< Number of satellites in view */
-#if GPS_CFG_STATEMENT_GPGSV_SAT_DET || __DOXYGEN__
+#if GPS_CFG_STATEMENT_SAT_DET || (defined(__DOXYGEN__) && __DOXYGEN__)
     gps_sat_t sats_in_view_desc[12];
 #endif
 #endif /* GPS_CFG_STATEMENT_GPGSV || __DOXYGEN__ */
@@ -406,6 +425,11 @@ typedef struct {
                 uint8_t sats_in_use;            /*!< Number of satellites currently in use */
             } pos;                             /*!< PUBX POS message */
 #endif /* GPS_CFG_STATEMENT_PUBX_POS */
+#if GPS_CFG_STATEMENT_PUBX_SVSTATUS
+            struct {
+                uint8_t sats_in_view;           /*!< Number of stallites in view */
+            } svstatus;                              /*!< GPGSV message */
+#endif /* GPS_CFG_STATEMENT_PUBX_SVSTATUS */
         } data;                                 /*!< Union with data for each information */
     } p;                                        /*!< Structure with private data */
 #endif /* !__DOXYGEN__ */
