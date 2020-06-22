@@ -66,7 +66,7 @@ extern "C" {
  * \note            This is an extension, so not enabled by default.
  */
 #ifndef GPS_CFG_STATUS
-#define GPS_CFG_STATUS                      0
+#define GPS_CFG_STATUS                      1
 #endif
 
 /**
@@ -134,7 +134,7 @@ extern "C" {
  *                  so disabled by default.
  */
 #ifndef GPS_CFG_STATEMENT_PUBX
-#define GPS_CFG_STATEMENT_PUBX     0
+#define GPS_CFG_STATEMENT_PUBX     1
 #endif
 
 /**
@@ -152,7 +152,7 @@ extern "C" {
  *                  This configure option requires GPS_CFG_STATEMENT_PUBX
  */
 #ifndef GPS_CFG_STATEMENT_PUBX_TIME
-#define GPS_CFG_STATEMENT_PUBX_TIME     0
+#define GPS_CFG_STATEMENT_PUBX_TIME     1
 #endif
 /* Guard against accidental parser breakage */
 #if GPS_CFG_STATEMENT_PUBX_TIME && !GPS_CFG_STATEMENT_PUBX
