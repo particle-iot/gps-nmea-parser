@@ -34,6 +34,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include "gps/gps.h"
 
 #define FLT(x)              ((gps_float_t)(x))
@@ -100,6 +101,40 @@ parse_float_number(gps_t* gh, const char* t) {
 #endif /* !GPS_CFG_DOUBLE */
 
     return FLT(res);                            /* Return casted value, based on float size */
+}
+
+/**
+ * \brief           Fixup date based on new clock time to account for implicit rollover at midnight.
+ * \param[in]       gh: GPS handle
+ * \param[in]       hours: New hours
+ * \param[in]       minutes: New minutes
+ * \param[in]       seconds: New seconds
+ */
+static void
+fixup_date(gps_t* gh, uint8_t hours, uint8_t minutes, uint8_t seconds) {
+    if(gh->date_valid && gh->time_valid && gh->hours >= 23 && hours == 0)
+    {
+        struct tm t_struct = {0};
+        time_t t_val;
+
+        // determine UTC timestamp for the previous time
+        t_struct.tm_hour = gh->hours;
+        t_struct.tm_min = gh->minutes;
+        t_struct.tm_sec = gh->seconds;
+        t_struct.tm_mday = gh->date;
+        // struct tm expects 0-11 mon, we have 1-12
+        t_struct.tm_mon = gh->month - 1;
+        // struct tm expect years since 1900, we have years since 2000
+        t_struct.tm_year = gh->year + 100;
+        t_val = mktime(&t_struct);
+
+        // move forward by a day
+        t_val += 24l * 3600l;
+        gmtime_r(&t_val, &t_struct);
+        gh->date = t_struct.tm_mday;
+        gh->month = t_struct.tm_mon + 1;
+        gh->year = t_struct.tm_year - 100;
+    }
 }
 
 /**
@@ -417,6 +452,8 @@ copy_from_tmp_memory(gps_t* gh) {
     if (0) {
 #if GPS_CFG_STATEMENT_PUBX_POS
     } else if (gh->p.stat == STAT_UBX_POS) {
+        // UBX POSITION does not include date field so fixup as necessary
+        fixup_date(gh, gh->p.data.pos.hours, gh->p.data.pos.minutes, gh->p.data.pos.seconds);
         if(gh->timestamp_fn)
         {
             gh->time_timestamp = gh->pos_timestamp = gh->timestamp_fn();
@@ -439,6 +476,8 @@ copy_from_tmp_memory(gps_t* gh) {
 #endif /* GPS_CFG_STATEMENT_PUBX_POS */
 #if GPS_CFG_STATEMENT_GPGGA
     } else if (gh->p.stat == STAT_GGA) {
+        // GGA does not include date field so fixup as necessary
+        fixup_date(gh, gh->p.data.gga.hours, gh->p.data.gga.minutes, gh->p.data.gga.seconds);
         if(gh->timestamp_fn)
         {
             gh->time_timestamp = gh->pos_timestamp = gh->timestamp_fn();
