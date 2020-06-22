@@ -207,6 +207,9 @@ typedef enum {
  * \brief           GPS main structure
  */
 typedef struct {
+    // stores raw sentence for debug purposes
+    unsigned int sentence_len;
+    char sentence[512];
 #if GPS_CFG_STATEMENT_GPGGA || __DOXYGEN__
     /* Information related to GPGGA statement */
     gps_float_t latitude;                       /*!< Latitude in units of degrees */

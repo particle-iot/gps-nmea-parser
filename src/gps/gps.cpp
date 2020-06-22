@@ -434,7 +434,13 @@ gps_process(gps_t* gh, const void* data, size_t len) {
     const uint8_t* d = data;
 
     for (; len > 0; ++d, --len) {               /* Process all bytes */
+        if(gh->sentence_len < sizeof(gh->sentence) && *d != '\r' && *d != '\n')
+        {
+            gh->sentence[gh->sentence_len++] = *d;
+        }
         if (*d == '$') {                        /* Check for beginning of NMEA line */
+            gh->sentence_len = 1;
+            gh->sentence[0] = '$';
             memset(&gh->p, 0x00, sizeof(gh->p));/* Reset private memory */
             TERM_ADD(gh, *d);                   /* Add character to term */
         } else if (*d == ',') {                 /* Term separator character */
