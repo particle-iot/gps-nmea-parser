@@ -451,10 +451,10 @@ gps_process(gps_t* gh, const void* data, size_t len) {
                 copy_from_tmp_memory(gh);       /* Copy memory from temporary to user memory */
 #if GPS_CFG_STATUS
                 if (evt_fn != NULL) {
-                    evt_fn(gh->p.stat);
+                    evt_fn(gh, gh->p.stat);
                 }
             } else if (evt_fn != NULL) {
-                evt_fn(STAT_CHECKSUM_FAIL);
+                evt_fn(gh, STAT_CHECKSUM_FAIL);
 #endif /* GPS_CFG_STATUS */
             }
         } else {

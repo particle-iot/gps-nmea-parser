@@ -373,9 +373,10 @@ typedef enum {
 
 /**
  * \brief           Signature for caller-suplied callback function from gps_process
+ * \param[in]       gh: GPS handle
  * \param[in]       res: statement type of recently parsed statement
  */
-typedef void (*gps_process_fn)(gps_statement_t res);
+typedef void (*gps_process_fn)(gps_t* gh, gps_statement_t res);
 
 /**
  * \brief           Check if current GPS data contain valid signal
