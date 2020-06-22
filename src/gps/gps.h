@@ -160,6 +160,23 @@ extern "C" {
 #endif /* GPS_CFG_STATEMENT_PUBX_TIME && !GPS_CFG_STATEMENT_PUBX */
 
 /**
+ * \brief           Enables `1` or disables `0` parsing and generation
+ *                  of PUBX (uBlox) POSITION messages.
+ *
+ * \note            This is a nonstandard ublox-specific extension,
+ *                  so disabled by default.
+ *
+ *                  This configure option requires GPS_CFG_STATEMENT_PUBX
+ */
+#ifndef GPS_CFG_STATEMENT_PUBX_POS
+#define GPS_CFG_STATEMENT_PUBX_POS     1
+#endif
+/* Guard against accidental parser breakage */
+#if GPS_CFG_STATEMENT_PUBX_POS && !GPS_CFG_STATEMENT_PUBX
+#error GPS_CFG_STATEMENT_PUBX must be enabled when enabling GPS_CFG_STATEMENT_PUBX_POS
+#endif /* GPS_CFG_STATEMENT_PUBX_POS && !GPS_CFG_STATEMENT_PUBX */
+
+/**
  * \}
  */
 
@@ -200,6 +217,7 @@ typedef enum {
     STAT_RMC        = 4,                        /*!< GPRMC statement */
     STAT_UBX        = 5,                        /*!< UBX statement (uBlox specific) */
     STAT_UBX_TIME   = 6,                        /*!< UBX TIME statement (uBlox specific) */
+    STAT_UBX_POS    = 7,                        /*!< UBX POSITION statement (uBlox specific) */
     STAT_CHECKSUM_FAIL = UINT8_MAX              /*!< Special case, used when checksum fails */
 } gps_statement_t;
 
@@ -273,7 +291,24 @@ typedef struct {
     uint32_t tp_gran;                           /*!< Time pulse granularity, eg 43 */
 #endif /* GPS_CFG_STATEMENT_PUBX_TIME || __DOXYGEN__ */
 
-#if !__DOXYGEN__
+#if GPS_CFG_STATEMENT_PUBX_POS || __DOXYGEN__
+    /* rely on fields from other sentences if possible */
+#if !GPS_CFG_STATEMENT_GPGGA && !GPS_CFG_STATEMENT_PUBX_TIME && !__DOXYGEN__
+    uint8_t hours;
+    uint8_t minutes;
+    uint8_t seconds;
+#endif /* !GPS_CFG_STATEMENT_GPGGA && !GPS_CFG_STATEMENT_PUBX_TIME && !__DOXYGEN__ */
+#if !GPS_CFG_STATEMENT_GPRMC && !GPS_CFG_STATEMENT_PUBX_TIME !__DOXYGEN__
+    uint8_t date;
+    uint8_t month;
+    uint8_t year;
+#endif /* !GPS_CFG_STATEMENT_GPRMC && !GPS_CFG_STATEMENT_PUBX_TIME !__DOXYGEN__ */
+    /* fields only available in PUBX_POS */
+    gps_float_t h_accuracy;
+    gps_float_t v_accuracy;
+#endif /* GPS_CFG_STATEMENT_PUBX_TIME || __DOXYGEN__ */
+
+#if ! (defined(__DOXYGEN__) && __DOXYGEN__)
     struct {
         gps_statement_t stat;                   /*!< Statement index */
         char term_str[13];                      /*!< Current term in string format */
@@ -341,6 +376,23 @@ typedef struct {
                 uint32_t tp_gran;               /*!< Time pulse granularity, eg 43 */
             } time;                             /*!< PUBX TIME message */
 #endif /* GPS_CFG_STATEMENT_PUBX_TIME */
+#if GPS_CFG_STATEMENT_PUBX_POS
+            struct {
+                uint8_t hours;                  /*!< Current UTC hours */
+                uint8_t minutes;                /*!< Current UTC minutes */
+                uint8_t seconds;                /*!< Current UTC seconds */
+                gps_float_t latitude;           /*!< GPS latitude position in degrees */
+                gps_float_t longitude;          /*!< GPS longitude position in degrees */
+                gps_float_t altitude;           /*!< GPS altitude in meters */
+                gps_float_t course;             /*!< Current course over ground */
+                gps_float_t h_accuracy;
+                gps_float_t v_accuracy;
+                gps_float_t speed;              /*!< Current spead over the ground in knots */
+                gps_float_t dop_h;              /*!< Horizontal dilution of precision */
+                uint8_t fix;                    /*!< Type of current fix, `0` = Invalid, `1` = GPS fix, `2` = Differential GPS fix */
+                uint8_t sats_in_use;            /*!< Number of satellites currently in use */
+            } pos;                             /*!< PUBX POS message */
+#endif /* GPS_CFG_STATEMENT_PUBX_POS */
         } data;                                 /*!< Union with data for each information */
     } p;                                        /*!< Structure with private data */
 #endif /* !__DOXYGEN__ */

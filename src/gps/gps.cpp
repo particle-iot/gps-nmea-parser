@@ -284,6 +284,9 @@ parse_term(gps_t* gh) {
         if (gh->p.term_str[0] == '0' && gh->p.term_str[1] == '4') {
             gh->p.stat = STAT_UBX_TIME;
         }
+        else if (gh->p.term_str[0] == '0' && gh->p.term_str[1] == '0') {
+            gh->p.stat = STAT_UBX_POS;
+        }
 #if GPS_CFG_STATEMENT_PUBX_TIME
     } else if (gh->p.stat == STAT_UBX_TIME) {   /* Process PUBX (uBlox) TIME statement */
         switch (gh->p.term_num) {
@@ -328,6 +331,65 @@ parse_term(gps_t* gh) {
             default: break;
         }
 #endif /* GPS_CFG_STATEMENT_PUBX_TIME */
+#if GPS_CFG_STATEMENT_PUBX_POS
+    } else if (gh->p.stat == STAT_UBX_POS) {   /* Process PUBX (uBlox) POSITION statement */
+        switch (gh->p.term_num) {
+            case 2:                             /* Process UTC time; ignore fractions of seconds */
+                gh->p.data.pos.hours = 10 * CTN(gh->p.term_str[0]) + CTN(gh->p.term_str[1]);
+                gh->p.data.pos.minutes = 10 * CTN(gh->p.term_str[2]) + CTN(gh->p.term_str[3]);
+                gh->p.data.pos.seconds = 10 * CTN(gh->p.term_str[4]) + CTN(gh->p.term_str[5]);
+                break;
+            case 3:                             /* Latitude */
+                gh->p.data.pos.latitude = parse_lat_long(gh);   /* Parse latitude */
+                break;
+            case 4:                             /* Latitude north/south information */
+                if (gh->p.term_str[0] == 'S' || gh->p.term_str[0] == 's') {
+                    gh->p.data.pos.latitude = -gh->p.data.pos.latitude;
+                }
+                break;
+            case 5:                             /* Longitude */
+                gh->p.data.pos.longitude = parse_lat_long(gh);  /* Parse longitude */
+                break;
+            case 6:                             /* Longitude east/west information */
+                if (gh->p.term_str[0] == 'W' || gh->p.term_str[0] == 'w') {
+                    gh->p.data.pos.longitude = -gh->p.data.pos.longitude;
+                }
+                break;
+            case 7:                             /* Altitude */
+                gh->p.data.pos.altitude = parse_float_number(gh, NULL);
+                break;
+            case 8:                             /* Fix status */
+                if (!strcmp(gh->p.term_str, "G2") || !strcmp(gh->p.term_str, "G3")) {
+                    gh->p.data.pos.fix = 1;
+                } else if (!strcmp(gh->p.term_str, "D2") || !strcmp(gh->p.term_str, "D3")) {
+                    gh->p.data.pos.fix = 2;
+                } else if (!strcmp(gh->p.term_str, "DR") || !strcmp(gh->p.term_str, "RK")) {
+                    gh->p.data.pos.fix = 6;
+                } else {
+                    gh->p.data.pos.fix = 0;
+                }
+                break;
+            case 9:                              /* Horizontal accuracy */
+                gh->p.data.pos.h_accuracy = parse_float_number(gh, NULL);
+                break;
+            case 10:                             /* Vertical accuracy */
+                gh->p.data.pos.v_accuracy = parse_float_number(gh, NULL);
+                break;
+            case 11:
+                gh->p.data.pos.speed = parse_float_number(gh, NULL) / 1.852; // convert km/h to knots
+                break;
+            case 12:                             /* Process true ground course */
+                gh->p.data.pos.course = parse_float_number(gh, NULL);
+                break;
+            case 15:
+                gh->p.data.pos.dop_h = parse_float_number(gh, NULL);
+                break;
+            case 18:                             /* Satellites in use */
+                gh->p.data.pos.sats_in_use = (uint8_t)parse_number(gh, NULL);
+                break;
+            default: break;
+        }
+#endif /* GPS_CFG_STATEMENT_PUBX_POS */
 #endif /* GPS_CFG_STATEMENT_PUBX */
     }
     return 1;
@@ -353,6 +415,23 @@ check_crc(gps_t* gh) {
 static uint8_t
 copy_from_tmp_memory(gps_t* gh) {
     if (0) {
+#if GPS_CFG_STATEMENT_PUBX_POS
+    } else if (gh->p.stat == STAT_UBX_POS) {
+        gh->time_valid = true;
+        gh->hours = gh->p.data.pos.hours;
+        gh->minutes = gh->p.data.pos.minutes;
+        gh->seconds = gh->p.data.pos.seconds;
+        gh->latitude = gh->p.data.pos.latitude;
+        gh->longitude = gh->p.data.pos.longitude;
+        gh->altitude = gh->p.data.pos.altitude;
+        gh->fix = gh->p.data.pos.fix;
+        gh->h_accuracy = gh->p.data.pos.h_accuracy;
+        gh->v_accuracy = gh->p.data.pos.v_accuracy;
+        gh->speed = gh->p.data.pos.speed;
+        gh->course = gh->p.data.pos.course;
+        gh->dop_h = gh->p.data.pos.dop_h;
+        gh->sats_in_use = gh->p.data.pos.sats_in_use;
+#endif /* GPS_CFG_STATEMENT_PUBX_POS */
 #if GPS_CFG_STATEMENT_GPGGA
     } else if (gh->p.stat == STAT_GGA) {
         gh->latitude = gh->p.data.gga.latitude;
