@@ -222,12 +222,25 @@ typedef enum {
 } gps_statement_t;
 
 /**
+ * \brief           Signature for caller-suplied callback function to save timestamp of last parsed sentence
+ * \return          value representing NOW when function is called
+ */
+typedef int (*gps_timestamp_fn_t)();
+
+/**
  * \brief           GPS main structure
  */
 typedef struct {
+    gps_timestamp_fn_t timestamp_fn;
     // stores raw sentence for debug purposes
     unsigned int sentence_len;
     char sentence[512];
+    int time_timestamp;
+    int date_timestamp;
+    int pos_timestamp;
+    bool time_valid;
+    bool date_valid;
+    bool pos_valid;
 #if GPS_CFG_STATEMENT_GPGGA || __DOXYGEN__
     /* Information related to GPGGA statement */
     gps_float_t latitude;                       /*!< Latitude in units of degrees */
@@ -445,8 +458,8 @@ typedef void (*gps_process_fn)(gps_t* gh, gps_statement_t res);
 #define gps_is_valid(_gh)           (0)
 #endif /* GPS_CFG_STATEMENT_GPRMC || __DOXYGEN__ */
 
-uint8_t     gps_init(gps_t* gh);
-#if GPS_CFG_STATUS || __DOXYGEN__
+uint8_t     gps_init(gps_t* gh, gps_timestamp_fn_t timestamp_fn);
+#if GPS_CFG_STATUS ||  (defined(__DOXYGEN__) && __DOXYGEN__)
 uint8_t     gps_process(gps_t* gh, const void* data, size_t len, gps_process_fn evt_fn);
 #else /* GPS_CFG_STATUS */
 uint8_t     gps_process(gps_t* gh, const void* data, size_t len);

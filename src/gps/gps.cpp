@@ -417,6 +417,11 @@ copy_from_tmp_memory(gps_t* gh) {
     if (0) {
 #if GPS_CFG_STATEMENT_PUBX_POS
     } else if (gh->p.stat == STAT_UBX_POS) {
+        if(gh->timestamp_fn)
+        {
+            gh->time_timestamp = gh->pos_timestamp = gh->timestamp_fn();
+        }
+        gh->pos_valid = true;
         gh->time_valid = true;
         gh->hours = gh->p.data.pos.hours;
         gh->minutes = gh->p.data.pos.minutes;
@@ -434,6 +439,12 @@ copy_from_tmp_memory(gps_t* gh) {
 #endif /* GPS_CFG_STATEMENT_PUBX_POS */
 #if GPS_CFG_STATEMENT_GPGGA
     } else if (gh->p.stat == STAT_GGA) {
+        if(gh->timestamp_fn)
+        {
+            gh->time_timestamp = gh->pos_timestamp = gh->timestamp_fn();
+        }
+        gh->time_valid = true;
+        gh->pos_valid = true;
         gh->latitude = gh->p.data.gga.latitude;
         gh->longitude = gh->p.data.gga.longitude;
         gh->altitude = gh->p.data.gga.altitude;
@@ -458,6 +469,7 @@ copy_from_tmp_memory(gps_t* gh) {
 #endif /* GPS_CFG_STATEMENT_GPGSV */
 #if GPS_CFG_STATEMENT_GPRMC
     } else if (gh->p.stat == STAT_RMC) {
+        gh->date_valid = true;
         gh->course = gh->p.data.rmc.course;
         gh->is_valid = gh->p.data.rmc.is_valid;
         gh->speed = gh->p.data.rmc.speed;
@@ -468,6 +480,12 @@ copy_from_tmp_memory(gps_t* gh) {
 #endif /* GPS_CFG_STATEMENT_GPRMC */
 #if GPS_CFG_STATEMENT_PUBX_TIME
     } else if (gh->p.stat == STAT_UBX_TIME) {
+        if(gh->timestamp_fn)
+        {
+            gh->time_timestamp = gh->date_timestamp = gh->timestamp_fn();
+        }
+        gh->time_valid = true;
+        gh->date_valid = true;
         gh->hours = gh->p.data.time.hours;
         gh->minutes = gh->p.data.time.minutes;
         gh->seconds = gh->p.data.time.seconds;
@@ -491,8 +509,9 @@ copy_from_tmp_memory(gps_t* gh) {
  * \return          `1` on success, `0` otherwise
  */
 uint8_t
-gps_init(gps_t* gh) {
+gps_init(gps_t* gh, gps_timestamp_fn_t timestamp_fn) {
     memset(gh, 0x00, sizeof(*gh));              /* Reset structure */
+    gh->timestamp_fn = timestamp_fn;
     return 1;
 }
 
