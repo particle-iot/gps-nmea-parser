@@ -330,7 +330,7 @@ typedef struct {
     uint8_t minutes;
     uint8_t seconds;
 #endif /* !GPS_CFG_STATEMENT_GPGGA && !GPS_CFG_STATEMENT_PUBX_TIME && !__DOXYGEN__ */
-#if !GPS_CFG_STATEMENT_GPRMC && !GPS_CFG_STATEMENT_PUBX_TIME !__DOXYGEN__
+#if !GPS_CFG_STATEMENT_GPRMC && !GPS_CFG_STATEMENT_PUBX_TIME && !__DOXYGEN__
     uint8_t date;
     uint8_t month;
     uint8_t year;

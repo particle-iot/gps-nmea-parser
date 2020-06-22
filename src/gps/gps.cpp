@@ -601,12 +601,12 @@ gps_init(gps_t* gh, gps_timestamp_fn_t timestamp_fn) {
  * \return          `1` on success, `0` otherwise
  */
 uint8_t
-#if GPS_CFG_STATUS || __DOXYGEN__
+#if GPS_CFG_STATUS ||  (defined(__DOXYGEN__) && __DOXYGEN__)
 gps_process(gps_t* gh, const void* data, size_t len, gps_process_fn evt_fn) {
 #else /* GPS_CFG_STATUS */
 gps_process(gps_t* gh, const void* data, size_t len) {
 #endif /* !GPS_CFG_STATUS */
-    const uint8_t* d = data;
+    const uint8_t* d = (const uint8_t *) data;
 
     for (; len > 0; ++d, --len) {               /* Process all bytes */
         if(gh->sentence_len < sizeof(gh->sentence) && *d != '\r' && *d != '\n')
