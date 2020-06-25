@@ -66,7 +66,7 @@ extern "C" {
  * \note            This is an extension, so not enabled by default.
  */
 #ifndef GPS_CFG_STATUS
-#define GPS_CFG_STATUS                      0
+#define GPS_CFG_STATUS                      1
 #endif
 
 /**
@@ -110,7 +110,7 @@ extern "C" {
  *
  * \note            This statement must be enabled to parse:
  *                      - Number of satellites in view
- *                      - Optional details of each satellite in view. See \ref GPS_CFG_STATEMENT_GPGSV_SAT_DET
+ *                      - Optional details of each satellite in view. See \ref GPS_CFG_STATEMENT_SAT_DET
  */
 #ifndef GPS_CFG_STATEMENT_GPGSV
 #define GPS_CFG_STATEMENT_GPGSV             1
@@ -118,12 +118,12 @@ extern "C" {
 
 /**
  * \brief           Enables `1` or disables `0` detailed parsing of each
- *                  satellite in view for `GSV` statement.
+ *                  satellite in view for `GSV` or `PUBX SVSTATUS` statement.
  *
  * \note            When this feature is disabled, only number of "satellites in view" is parsed
  */
-#ifndef GPS_CFG_STATEMENT_GPGSV_SAT_DET
-#define GPS_CFG_STATEMENT_GPGSV_SAT_DET     0
+#ifndef GPS_CFG_STATEMENT_SAT_DET
+#define GPS_CFG_STATEMENT_SAT_DET     1
 #endif
 
 /**
@@ -134,7 +134,7 @@ extern "C" {
  *                  so disabled by default.
  */
 #ifndef GPS_CFG_STATEMENT_PUBX
-#define GPS_CFG_STATEMENT_PUBX     0
+#define GPS_CFG_STATEMENT_PUBX     1
 #endif
 
 /**
@@ -152,12 +152,46 @@ extern "C" {
  *                  This configure option requires GPS_CFG_STATEMENT_PUBX
  */
 #ifndef GPS_CFG_STATEMENT_PUBX_TIME
-#define GPS_CFG_STATEMENT_PUBX_TIME     0
+#define GPS_CFG_STATEMENT_PUBX_TIME     1
 #endif
 /* Guard against accidental parser breakage */
 #if GPS_CFG_STATEMENT_PUBX_TIME && !GPS_CFG_STATEMENT_PUBX
 #error GPS_CFG_STATEMENT_PUBX must be enabled when enabling GPS_CFG_STATEMENT_PUBX_TIME
 #endif /* GPS_CFG_STATEMENT_PUBX_TIME && !GPS_CFG_STATEMENT_PUBX */
+
+/**
+ * \brief           Enables `1` or disables `0` parsing and generation
+ *                  of PUBX (uBlox) POSITION messages.
+ *
+ * \note            This is a nonstandard ublox-specific extension,
+ *                  so disabled by default.
+ *
+ *                  This configure option requires GPS_CFG_STATEMENT_PUBX
+ */
+#ifndef GPS_CFG_STATEMENT_PUBX_POS
+#define GPS_CFG_STATEMENT_PUBX_POS     1
+#endif
+/* Guard against accidental parser breakage */
+#if GPS_CFG_STATEMENT_PUBX_POS && !GPS_CFG_STATEMENT_PUBX
+#error GPS_CFG_STATEMENT_PUBX must be enabled when enabling GPS_CFG_STATEMENT_PUBX_POS
+#endif /* GPS_CFG_STATEMENT_PUBX_POS && !GPS_CFG_STATEMENT_PUBX */
+
+/**
+ * \brief           Enables `1` or disables `0` parsing and generation
+ *                  of PUBX (uBlox) SVSTATUS messages.
+ *
+ * \note            This is a nonstandard ublox-specific extension,
+ *                  so disabled by default.
+ *
+ *                  This configure option requires GPS_CFG_STATEMENT_PUBX
+ */
+#ifndef GPS_CFG_STATEMENT_PUBX_SVSTATUS
+#define GPS_CFG_STATEMENT_PUBX_SVSTATUS     1
+#endif
+/* Guard against accidental parser breakage */
+#if GPS_CFG_STATEMENT_PUBX_SVSTATUS && !GPS_CFG_STATEMENT_PUBX
+#error GPS_CFG_STATEMENT_PUBX must be enabled when enabling GPS_CFG_STATEMENT_PUBX_SVSTATUS
+#endif /* GPS_CFG_STATEMENT_PUBX_SVSTATUS && !GPS_CFG_STATEMENT_PUBX */
 
 /**
  * \}
@@ -187,6 +221,7 @@ typedef struct {
     uint8_t elevation;                          /*!< Elevation value */
     uint16_t azimuth;                           /*!< Azimuth in degrees */
     uint8_t snr;                                /*!< Signal-to-noise ratio */
+    bool used;                                  /*!< true if used in the nav solution, false otherwise */
 } gps_sat_t;
 
 /**
@@ -200,13 +235,31 @@ typedef enum {
     STAT_RMC        = 4,                        /*!< GPRMC statement */
     STAT_UBX        = 5,                        /*!< UBX statement (uBlox specific) */
     STAT_UBX_TIME   = 6,                        /*!< UBX TIME statement (uBlox specific) */
+    STAT_UBX_POS    = 7,                        /*!< UBX POSITION statement (uBlox specific) */
+    STAT_UBX_SVSTATUS = 8,                      /*!< UBX SVSTATUS statement (uBlox specific) */
     STAT_CHECKSUM_FAIL = UINT8_MAX              /*!< Special case, used when checksum fails */
 } gps_statement_t;
+
+/**
+ * \brief           Signature for caller-suplied callback function to save timestamp of last parsed sentence
+ * \return          value representing NOW when function is called
+ */
+typedef int (*gps_timestamp_fn_t)();
 
 /**
  * \brief           GPS main structure
  */
 typedef struct {
+    gps_timestamp_fn_t timestamp_fn;
+    // stores raw sentence for debug purposes
+    unsigned int sentence_len;
+    char sentence[512];
+    int time_timestamp;
+    int date_timestamp;
+    int pos_timestamp;
+    bool time_valid;
+    bool date_valid;
+    bool pos_valid;
 #if GPS_CFG_STATEMENT_GPGGA || __DOXYGEN__
     /* Information related to GPGGA statement */
     gps_float_t latitude;                       /*!< Latitude in units of degrees */
@@ -229,10 +282,10 @@ typedef struct {
     uint8_t satellites_ids[12];                 /*!< List of satellite IDs in use. Valid range is `0` to `sats_in_use` */
 #endif /* GPS_CFG_STATEMENT_GPGSA || __DOXYGEN__ */
 
-#if GPS_CFG_STATEMENT_GPGSV || __DOXYGEN__
+#if GPS_CFG_STATEMENT_GPGSV || GPS_CFG_STATEMENT_PUBX_SVSTATUS || __DOXYGEN__
     /* Information related to GPGSV statement */
     uint8_t sats_in_view;                       /*!< Number of satellites in view */
-#if GPS_CFG_STATEMENT_GPGSV_SAT_DET || __DOXYGEN__
+#if GPS_CFG_STATEMENT_SAT_DET || (defined(__DOXYGEN__) && __DOXYGEN__)
     gps_sat_t sats_in_view_desc[12];
 #endif
 #endif /* GPS_CFG_STATEMENT_GPGSV || __DOXYGEN__ */
@@ -270,7 +323,24 @@ typedef struct {
     uint32_t tp_gran;                           /*!< Time pulse granularity, eg 43 */
 #endif /* GPS_CFG_STATEMENT_PUBX_TIME || __DOXYGEN__ */
 
-#if !__DOXYGEN__
+#if GPS_CFG_STATEMENT_PUBX_POS || __DOXYGEN__
+    /* rely on fields from other sentences if possible */
+#if !GPS_CFG_STATEMENT_GPGGA && !GPS_CFG_STATEMENT_PUBX_TIME && !__DOXYGEN__
+    uint8_t hours;
+    uint8_t minutes;
+    uint8_t seconds;
+#endif /* !GPS_CFG_STATEMENT_GPGGA && !GPS_CFG_STATEMENT_PUBX_TIME && !__DOXYGEN__ */
+#if !GPS_CFG_STATEMENT_GPRMC && !GPS_CFG_STATEMENT_PUBX_TIME && !__DOXYGEN__
+    uint8_t date;
+    uint8_t month;
+    uint8_t year;
+#endif /* !GPS_CFG_STATEMENT_GPRMC && !GPS_CFG_STATEMENT_PUBX_TIME !__DOXYGEN__ */
+    /* fields only available in PUBX_POS */
+    gps_float_t h_accuracy;
+    gps_float_t v_accuracy;
+#endif /* GPS_CFG_STATEMENT_PUBX_TIME || __DOXYGEN__ */
+
+#if ! (defined(__DOXYGEN__) && __DOXYGEN__)
     struct {
         gps_statement_t stat;                   /*!< Statement index */
         char term_str[13];                      /*!< Current term in string format */
@@ -338,6 +408,28 @@ typedef struct {
                 uint32_t tp_gran;               /*!< Time pulse granularity, eg 43 */
             } time;                             /*!< PUBX TIME message */
 #endif /* GPS_CFG_STATEMENT_PUBX_TIME */
+#if GPS_CFG_STATEMENT_PUBX_POS
+            struct {
+                uint8_t hours;                  /*!< Current UTC hours */
+                uint8_t minutes;                /*!< Current UTC minutes */
+                uint8_t seconds;                /*!< Current UTC seconds */
+                gps_float_t latitude;           /*!< GPS latitude position in degrees */
+                gps_float_t longitude;          /*!< GPS longitude position in degrees */
+                gps_float_t altitude;           /*!< GPS altitude in meters */
+                gps_float_t course;             /*!< Current course over ground */
+                gps_float_t h_accuracy;
+                gps_float_t v_accuracy;
+                gps_float_t speed;              /*!< Current spead over the ground in knots */
+                gps_float_t dop_h;              /*!< Horizontal dilution of precision */
+                uint8_t fix;                    /*!< Type of current fix, `0` = Invalid, `1` = GPS fix, `2` = Differential GPS fix */
+                uint8_t sats_in_use;            /*!< Number of satellites currently in use */
+            } pos;                             /*!< PUBX POS message */
+#endif /* GPS_CFG_STATEMENT_PUBX_POS */
+#if GPS_CFG_STATEMENT_PUBX_SVSTATUS
+            struct {
+                uint8_t sats_in_view;           /*!< Number of stallites in view */
+            } svstatus;                              /*!< GPGSV message */
+#endif /* GPS_CFG_STATEMENT_PUBX_SVSTATUS */
         } data;                                 /*!< Union with data for each information */
     } p;                                        /*!< Structure with private data */
 #endif /* !__DOXYGEN__ */
@@ -373,9 +465,10 @@ typedef enum {
 
 /**
  * \brief           Signature for caller-suplied callback function from gps_process
+ * \param[in]       gh: GPS handle
  * \param[in]       res: statement type of recently parsed statement
  */
-typedef void (*gps_process_fn)(gps_statement_t res);
+typedef void (*gps_process_fn)(gps_t* gh, gps_statement_t res);
 
 /**
  * \brief           Check if current GPS data contain valid signal
@@ -389,8 +482,8 @@ typedef void (*gps_process_fn)(gps_statement_t res);
 #define gps_is_valid(_gh)           (0)
 #endif /* GPS_CFG_STATEMENT_GPRMC || __DOXYGEN__ */
 
-uint8_t     gps_init(gps_t* gh);
-#if GPS_CFG_STATUS || __DOXYGEN__
+uint8_t     gps_init(gps_t* gh, gps_timestamp_fn_t timestamp_fn);
+#if GPS_CFG_STATUS ||  (defined(__DOXYGEN__) && __DOXYGEN__)
 uint8_t     gps_process(gps_t* gh, const void* data, size_t len, gps_process_fn evt_fn);
 #else /* GPS_CFG_STATUS */
 uint8_t     gps_process(gps_t* gh, const void* data, size_t len);

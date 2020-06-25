@@ -34,6 +34,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include "gps/gps.h"
 
 #define FLT(x)              ((gps_float_t)(x))
@@ -100,6 +101,40 @@ parse_float_number(gps_t* gh, const char* t) {
 #endif /* !GPS_CFG_DOUBLE */
 
     return FLT(res);                            /* Return casted value, based on float size */
+}
+
+/**
+ * \brief           Fixup date based on new clock time to account for implicit rollover at midnight.
+ * \param[in]       gh: GPS handle
+ * \param[in]       hours: New hours
+ * \param[in]       minutes: New minutes
+ * \param[in]       seconds: New seconds
+ */
+static void
+fixup_date(gps_t* gh, uint8_t hours, uint8_t minutes, uint8_t seconds) {
+    if(gh->date_valid && gh->time_valid && gh->hours >= 23 && hours == 0)
+    {
+        struct tm t_struct = {0};
+        time_t t_val;
+
+        // determine UTC timestamp for the previous time
+        t_struct.tm_hour = gh->hours;
+        t_struct.tm_min = gh->minutes;
+        t_struct.tm_sec = gh->seconds;
+        t_struct.tm_mday = gh->date;
+        // struct tm expects 0-11 mon, we have 1-12
+        t_struct.tm_mon = gh->month - 1;
+        // struct tm expect years since 1900, we have years since 2000
+        t_struct.tm_year = gh->year + 100;
+        t_val = mktime(&t_struct);
+
+        // move forward by a day
+        t_val += 24l * 3600l;
+        gmtime_r(&t_val, &t_struct);
+        gh->date = t_struct.tm_mday;
+        gh->month = t_struct.tm_mon + 1;
+        gh->year = t_struct.tm_year - 100;
+    }
 }
 
 /**
@@ -230,7 +265,7 @@ parse_term(gps_t* gh) {
                 gh->p.data.gsv.sats_in_view = (uint8_t)parse_number(gh, NULL);
                 break;
             default:
-#if GPS_CFG_STATEMENT_GPGSV_SAT_DET
+#if GPS_CFG_STATEMENT_SAT_DET
                 if (gh->p.term_num >= 4 && gh->p.term_num <= 19) {  /* Check current term number */
                     uint8_t index, term_num = gh->p.term_num - 4;   /* Normalize term number from 4-19 to 0-15 */
                     uint16_t value;
@@ -247,10 +282,41 @@ parse_term(gps_t* gh) {
                         }
                     }
                 }
-#endif /* GPS_CFG_STATEMENT_GPGSV_SAT_DET */
+#endif /* GPS_CFG_STATEMENT_SAT_DET */
                 break;
         }
 #endif /* GPS_CFG_STATEMENT_GPGSV */
+
+#if GPS_CFG_STATEMENT_PUBX_SVSTATUS
+    } else if (gh->p.stat == STAT_UBX_SVSTATUS) {        /* Process PUBX SVSTATUS statement */
+        switch (gh->p.term_num) {
+            case 2:                             /* Process satellites in view */
+                gh->p.data.svstatus.sats_in_view = (uint8_t)parse_number(gh, NULL);
+                break;
+            default:
+#if GPS_CFG_STATEMENT_SAT_DET
+                if (gh->p.term_num >= 3 && gh->p.term_num <= (3 + gh->p.data.svstatus.sats_in_view * 6)) {  /* Check current term number */
+                    uint8_t index, term_num = gh->p.term_num - 3;   /* Normalize term number to 0 */
+                    uint16_t value;
+
+                    index = term_num / 6;   /* Get array index */
+                    if (index < sizeof(gh->sats_in_view_desc) / sizeof(gh->sats_in_view_desc[0])) {
+                        value = (uint16_t)parse_number(gh, NULL);   /* Parse number as integer */
+                        switch (term_num % 6) {
+                            case 0: gh->sats_in_view_desc[index].num = value; break;
+                            case 1: gh->sats_in_view_desc[index].used = (gh->p.term_str[0] == 'U'); break;
+                            case 2: gh->sats_in_view_desc[index].azimuth = value; break;
+                            case 3: gh->sats_in_view_desc[index].elevation = value; break;
+                            case 4: gh->sats_in_view_desc[index].snr = value; break;
+                            default: break;
+                        }
+                    }
+                }
+#endif /* GPS_CFG_STATEMENT_SAT_DET */
+                break;
+        }
+#endif /* GPS_CFG_STATEMENT_PUBX_SVSTATUS */
+
 #if GPS_CFG_STATEMENT_GPRMC
     } else if (gh->p.stat == STAT_RMC) {        /* Process GPRMC statement */
         switch (gh->p.term_num) {
@@ -283,6 +349,12 @@ parse_term(gps_t* gh) {
     } else if (gh->p.stat == STAT_UBX) {        /* Disambiguate generic PUBX statement */
         if (gh->p.term_str[0] == '0' && gh->p.term_str[1] == '4') {
             gh->p.stat = STAT_UBX_TIME;
+        }
+        else if (gh->p.term_str[0] == '0' && gh->p.term_str[1] == '0') {
+            gh->p.stat = STAT_UBX_POS;
+        }
+        else if (gh->p.term_str[0] == '0' && gh->p.term_str[1] == '3') {
+            gh->p.stat = STAT_UBX_SVSTATUS;
         }
 #if GPS_CFG_STATEMENT_PUBX_TIME
     } else if (gh->p.stat == STAT_UBX_TIME) {   /* Process PUBX (uBlox) TIME statement */
@@ -328,6 +400,65 @@ parse_term(gps_t* gh) {
             default: break;
         }
 #endif /* GPS_CFG_STATEMENT_PUBX_TIME */
+#if GPS_CFG_STATEMENT_PUBX_POS
+    } else if (gh->p.stat == STAT_UBX_POS) {   /* Process PUBX (uBlox) POSITION statement */
+        switch (gh->p.term_num) {
+            case 2:                             /* Process UTC time; ignore fractions of seconds */
+                gh->p.data.pos.hours = 10 * CTN(gh->p.term_str[0]) + CTN(gh->p.term_str[1]);
+                gh->p.data.pos.minutes = 10 * CTN(gh->p.term_str[2]) + CTN(gh->p.term_str[3]);
+                gh->p.data.pos.seconds = 10 * CTN(gh->p.term_str[4]) + CTN(gh->p.term_str[5]);
+                break;
+            case 3:                             /* Latitude */
+                gh->p.data.pos.latitude = parse_lat_long(gh);   /* Parse latitude */
+                break;
+            case 4:                             /* Latitude north/south information */
+                if (gh->p.term_str[0] == 'S' || gh->p.term_str[0] == 's') {
+                    gh->p.data.pos.latitude = -gh->p.data.pos.latitude;
+                }
+                break;
+            case 5:                             /* Longitude */
+                gh->p.data.pos.longitude = parse_lat_long(gh);  /* Parse longitude */
+                break;
+            case 6:                             /* Longitude east/west information */
+                if (gh->p.term_str[0] == 'W' || gh->p.term_str[0] == 'w') {
+                    gh->p.data.pos.longitude = -gh->p.data.pos.longitude;
+                }
+                break;
+            case 7:                             /* Altitude */
+                gh->p.data.pos.altitude = parse_float_number(gh, NULL);
+                break;
+            case 8:                             /* Fix status */
+                if (!strcmp(gh->p.term_str, "G2") || !strcmp(gh->p.term_str, "G3")) {
+                    gh->p.data.pos.fix = 1;
+                } else if (!strcmp(gh->p.term_str, "D2") || !strcmp(gh->p.term_str, "D3")) {
+                    gh->p.data.pos.fix = 2;
+                } else if (!strcmp(gh->p.term_str, "DR") || !strcmp(gh->p.term_str, "RK")) {
+                    gh->p.data.pos.fix = 6;
+                } else {
+                    gh->p.data.pos.fix = 0;
+                }
+                break;
+            case 9:                              /* Horizontal accuracy */
+                gh->p.data.pos.h_accuracy = parse_float_number(gh, NULL);
+                break;
+            case 10:                             /* Vertical accuracy */
+                gh->p.data.pos.v_accuracy = parse_float_number(gh, NULL);
+                break;
+            case 11:
+                gh->p.data.pos.speed = parse_float_number(gh, NULL) / 1.852; // convert km/h to knots
+                break;
+            case 12:                             /* Process true ground course */
+                gh->p.data.pos.course = parse_float_number(gh, NULL);
+                break;
+            case 15:
+                gh->p.data.pos.dop_h = parse_float_number(gh, NULL);
+                break;
+            case 18:                             /* Satellites in use */
+                gh->p.data.pos.sats_in_use = (uint8_t)parse_number(gh, NULL);
+                break;
+            default: break;
+        }
+#endif /* GPS_CFG_STATEMENT_PUBX_POS */
 #endif /* GPS_CFG_STATEMENT_PUBX */
     }
     return 1;
@@ -353,8 +484,40 @@ check_crc(gps_t* gh) {
 static uint8_t
 copy_from_tmp_memory(gps_t* gh) {
     if (0) {
+#if GPS_CFG_STATEMENT_PUBX_POS
+    } else if (gh->p.stat == STAT_UBX_POS) {
+        // UBX POSITION does not include date field so fixup as necessary
+        fixup_date(gh, gh->p.data.pos.hours, gh->p.data.pos.minutes, gh->p.data.pos.seconds);
+        if(gh->timestamp_fn)
+        {
+            gh->time_timestamp = gh->pos_timestamp = gh->timestamp_fn();
+        }
+        gh->pos_valid = true;
+        gh->time_valid = true;
+        gh->hours = gh->p.data.pos.hours;
+        gh->minutes = gh->p.data.pos.minutes;
+        gh->seconds = gh->p.data.pos.seconds;
+        gh->latitude = gh->p.data.pos.latitude;
+        gh->longitude = gh->p.data.pos.longitude;
+        gh->altitude = gh->p.data.pos.altitude;
+        gh->fix = gh->p.data.pos.fix;
+        gh->h_accuracy = gh->p.data.pos.h_accuracy;
+        gh->v_accuracy = gh->p.data.pos.v_accuracy;
+        gh->speed = gh->p.data.pos.speed;
+        gh->course = gh->p.data.pos.course;
+        gh->dop_h = gh->p.data.pos.dop_h;
+        gh->sats_in_use = gh->p.data.pos.sats_in_use;
+#endif /* GPS_CFG_STATEMENT_PUBX_POS */
 #if GPS_CFG_STATEMENT_GPGGA
     } else if (gh->p.stat == STAT_GGA) {
+        // GGA does not include date field so fixup as necessary
+        fixup_date(gh, gh->p.data.gga.hours, gh->p.data.gga.minutes, gh->p.data.gga.seconds);
+        if(gh->timestamp_fn)
+        {
+            gh->time_timestamp = gh->pos_timestamp = gh->timestamp_fn();
+        }
+        gh->time_valid = true;
+        gh->pos_valid = true;
         gh->latitude = gh->p.data.gga.latitude;
         gh->longitude = gh->p.data.gga.longitude;
         gh->altitude = gh->p.data.gga.altitude;
@@ -377,8 +540,13 @@ copy_from_tmp_memory(gps_t* gh) {
     } else if (gh->p.stat == STAT_GSV) {
         gh->sats_in_view = gh->p.data.gsv.sats_in_view;
 #endif /* GPS_CFG_STATEMENT_GPGSV */
+#if GPS_CFG_STATEMENT_PUBX_SVSTATUS
+    } else if (gh->p.stat == STAT_GSV) {
+        gh->sats_in_view = gh->p.data.svstatus.sats_in_view;
+#endif /* GPS_CFG_STATEMENT_PUBX_SVSTATUS */
 #if GPS_CFG_STATEMENT_GPRMC
     } else if (gh->p.stat == STAT_RMC) {
+        gh->date_valid = true;
         gh->course = gh->p.data.rmc.course;
         gh->is_valid = gh->p.data.rmc.is_valid;
         gh->speed = gh->p.data.rmc.speed;
@@ -389,6 +557,12 @@ copy_from_tmp_memory(gps_t* gh) {
 #endif /* GPS_CFG_STATEMENT_GPRMC */
 #if GPS_CFG_STATEMENT_PUBX_TIME
     } else if (gh->p.stat == STAT_UBX_TIME) {
+        if(gh->timestamp_fn)
+        {
+            gh->time_timestamp = gh->date_timestamp = gh->timestamp_fn();
+        }
+        gh->time_valid = true;
+        gh->date_valid = true;
         gh->hours = gh->p.data.time.hours;
         gh->minutes = gh->p.data.time.minutes;
         gh->seconds = gh->p.data.time.seconds;
@@ -412,8 +586,9 @@ copy_from_tmp_memory(gps_t* gh) {
  * \return          `1` on success, `0` otherwise
  */
 uint8_t
-gps_init(gps_t* gh) {
+gps_init(gps_t* gh, gps_timestamp_fn_t timestamp_fn) {
     memset(gh, 0x00, sizeof(*gh));              /* Reset structure */
+    gh->timestamp_fn = timestamp_fn;
     return 1;
 }
 
@@ -426,15 +601,21 @@ gps_init(gps_t* gh) {
  * \return          `1` on success, `0` otherwise
  */
 uint8_t
-#if GPS_CFG_STATUS || __DOXYGEN__
+#if GPS_CFG_STATUS ||  (defined(__DOXYGEN__) && __DOXYGEN__)
 gps_process(gps_t* gh, const void* data, size_t len, gps_process_fn evt_fn) {
 #else /* GPS_CFG_STATUS */
 gps_process(gps_t* gh, const void* data, size_t len) {
 #endif /* !GPS_CFG_STATUS */
-    const uint8_t* d = data;
+    const uint8_t* d = (const uint8_t *) data;
 
     for (; len > 0; ++d, --len) {               /* Process all bytes */
+        if(gh->sentence_len < sizeof(gh->sentence) && *d != '\r' && *d != '\n')
+        {
+            gh->sentence[gh->sentence_len++] = *d;
+        }
         if (*d == '$') {                        /* Check for beginning of NMEA line */
+            gh->sentence_len = 1;
+            gh->sentence[0] = '$';
             memset(&gh->p, 0x00, sizeof(gh->p));/* Reset private memory */
             TERM_ADD(gh, *d);                   /* Add character to term */
         } else if (*d == ',') {                 /* Term separator character */
@@ -451,10 +632,10 @@ gps_process(gps_t* gh, const void* data, size_t len) {
                 copy_from_tmp_memory(gh);       /* Copy memory from temporary to user memory */
 #if GPS_CFG_STATUS
                 if (evt_fn != NULL) {
-                    evt_fn(gh->p.stat);
+                    evt_fn(gh, gh->p.stat);
                 }
             } else if (evt_fn != NULL) {
-                evt_fn(STAT_CHECKSUM_FAIL);
+                evt_fn(gh, STAT_CHECKSUM_FAIL);
 #endif /* GPS_CFG_STATUS */
             }
         } else {
