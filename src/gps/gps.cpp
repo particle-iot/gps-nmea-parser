@@ -541,7 +541,7 @@ copy_from_tmp_memory(gps_t* gh) {
         gh->sats_in_view = gh->p.data.gsv.sats_in_view;
 #endif /* GPS_CFG_STATEMENT_GPGSV */
 #if GPS_CFG_STATEMENT_PUBX_SVSTATUS
-    } else if (gh->p.stat == STAT_GSV) {
+    } else if (gh->p.stat == STAT_UBX_SVSTATUS) {
         gh->sats_in_view = gh->p.data.svstatus.sats_in_view;
 #endif /* GPS_CFG_STATEMENT_PUBX_SVSTATUS */
 #if GPS_CFG_STATEMENT_GPRMC
