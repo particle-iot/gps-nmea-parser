@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "gps/gps.h"
+#include "Particle.h"
 
 #define FLT(x)              ((gps_float_t)(x))
 #define D2R(x)              FLT(FLT(x) * FLT(0.01745329251994)) /*!< Degrees to radians */
@@ -174,7 +175,9 @@ parse_term(gps_t* gh) {
             gh->p.stat = STAT_GSA;
 #endif /* GPS_CFG_STATEMENT_GPGSA */
 #if GPS_CFG_STATEMENT_GPGSV
-        } else if (!strncmp(gh->p.term_str, "$GPGSV", 6) || !strncmp(gh->p.term_str, "$GNGSV", 6)) {
+        } else if (!strncmp(gh->p.term_str, "$GPGSV", 6) || !strncmp(gh->p.term_str, "$GNGSV", 6) || 
+                   !strncmp(gh->p.term_str, "$GLGSV", 6) || !strncmp(gh->p.term_str, "$GAGSV", 6) || 
+                   !strncmp(gh->p.term_str, "$GBGSV", 6)) {
             gh->p.stat = STAT_GSV;
 #endif /* GPS_CFG_STATEMENT_GPGSV */
 #if GPS_CFG_STATEMENT_GPRMC
@@ -185,6 +188,20 @@ parse_term(gps_t* gh) {
         } else if (!strncmp(gh->p.term_str, "$PUBX", 5)) {
             gh->p.stat = STAT_UBX;
 #endif /* GPS_CFG_STATEMENT_PUBX */
+#if GPS_CFG_STATEMENT_QUECTEL
+        } else if (!strncmp(gh->p.term_str, "$PQTMDRCAL", 10)) {
+            gh->p.stat = STAT_QUECTEL_CAL;
+        } else if (!strncmp(gh->p.term_str, "$PQTMEPE", 8)) {
+            gh->p.stat = STAT_QUECTEL_EDE;
+        } else if (!strncmp(gh->p.term_str, "$PQTMVEHMSG", 11)) {
+            gh->p.stat = STAT_QUECTEL_VEH;
+        } else if (!strncmp(gh->p.term_str, "$PQTMIMUTYPE", 12)) {
+            gh->p.stat = STAT_QUECTEL_IMU;
+        } else if (!strncmp(gh->p.term_str, "$PQTMSENMSG", 11)) {
+            gh->p.stat = STAT_QUECTEL_SEN;
+        } else if (!strncmp(gh->p.term_str, "$PQTMVEHMOT", 11)) {
+            gh->p.stat = STAT_QUECTEL_MOT;
+#endif /* GPS_CFG_STATEMENT_QUECTEL */
         } else {
             gh->p.stat = STAT_UNKNOWN;          /* Invalid statement for library */
         }
@@ -222,6 +239,9 @@ parse_term(gps_t* gh) {
                 break;
             case 7:                             /* Satellites in use */
                 gh->p.data.gga.sats_in_use = (uint8_t)parse_number(gh, NULL);
+                break;
+            case 8:                             /* Process HDOP */
+                gh->p.data.gga.dop_h = parse_float_number(gh, NULL);
                 break;
             case 9:                             /* Altitude */
                 gh->p.data.gga.altitude = parse_float_number(gh, NULL);
@@ -342,9 +362,137 @@ parse_term(gps_t* gh) {
                     gh->p.data.rmc.variation = -gh->p.data.rmc.variation;
                 }
                 break;
+            case 12:
+                gh->p.data.rmc.mode_ind = gh->p.term_str[0];
+                break;
             default: break;
         }
 #endif /* GPS_CFG_STATEMENT_GPRMC */
+
+#if GPS_CFG_STATEMENT_QUECTEL
+    } else if (gh->p.stat == STAT_QUECTEL_CAL) {
+        switch (gh->p.term_num) {
+            case 1:
+                gh->p.data.calstatus.msg_ver = (uint8_t)parse_number(gh, NULL);
+                break;
+            case 2:                             /* Process calibration state */
+                gh->p.data.calstatus.cal_state = (uint8_t)parse_number(gh, NULL);
+                break;
+            case 3:
+                gh->p.data.calstatus.nav_type = (uint8_t)parse_number(gh, NULL);
+                break;
+        }
+    } else if (gh->p.stat == STAT_QUECTEL_EDE) {
+        switch (gh->p.term_num) {
+            case 5:
+                gh->p.data.epe.epe_2d = parse_float_number(gh, NULL);
+                break;
+        }
+    } else if (gh->p.stat == STAT_QUECTEL_VEH) {
+        static uint8_t msg_type;
+        switch (gh->p.term_num) {
+            case 1:
+                msg_type = (uint8_t)parse_number(gh, NULL);
+                break;
+            case 3:
+                if( 1 == msg_type )
+                {
+                    gh->p.data.veh.speed = parse_float_number(gh, NULL);
+                }
+                else if( 2 == msg_type )
+                {
+                    gh->p.data.veh.wheel_tick = parse_number(gh, NULL);
+                }
+                else if( 3 == msg_type )
+                {
+                    gh->p.data.veh.lf_speed = parse_float_number(gh, NULL);
+                }
+                else if( 4 == msg_type )
+                {
+                    gh->p.data.veh.lf_tick = parse_number(gh, NULL);
+                }
+                break;
+            case 4:
+                if( 2 == msg_type )
+                {
+                    gh->p.data.veh.fwd_ind = (uint8_t)parse_number(gh, NULL);
+                }
+                else if( 3 == msg_type )
+                {
+                    gh->p.data.veh.rf_speed = parse_float_number(gh, NULL);
+                }
+                else if( 4 == msg_type )
+                {
+                    gh->p.data.veh.rf_tick = parse_number(gh, NULL);
+                }
+                break;
+            case 5:
+                if( 3 == msg_type )
+                {
+                    gh->p.data.veh.lr_speed = parse_float_number(gh, NULL);
+                }
+                else if( 4 == msg_type )
+                {
+                    gh->p.data.veh.lr_tick = parse_number(gh, NULL);
+                }
+                break;
+            case 6:
+                if( 3 == msg_type )
+                {
+                    gh->p.data.veh.rr_speed = parse_float_number(gh, NULL);
+                }
+                else if( 4 == msg_type )
+                {
+                    gh->p.data.veh.rr_tick = parse_number(gh, NULL);
+                }
+                break;
+            case 7:
+                if( 4 == msg_type )
+                {
+                    gh->p.data.veh.fwd_ind = parse_number(gh, NULL);
+                }
+                break;
+        }
+    } else if (gh->p.stat == STAT_QUECTEL_IMU) {
+        switch (gh->p.term_num) {
+            case 2:
+                gh->p.data.imu.imu_type = (uint8_t)parse_number(gh, NULL);
+                break;
+        }
+    } else if (gh->p.stat == STAT_QUECTEL_SEN) {
+        switch (gh->p.term_num) {
+            case 4:
+                gh->p.data.sensor.temperature = parse_float_number(gh, NULL);
+                break;
+            case 5:
+                gh->p.data.sensor.acc_x = parse_float_number(gh, NULL);
+                break;
+            case 6:
+                gh->p.data.sensor.acc_y = parse_float_number(gh, NULL);
+                break;
+            case 7:
+                gh->p.data.sensor.acc_z = parse_float_number(gh, NULL);
+                break;
+            case 8:
+                gh->p.data.sensor.gyr_x = parse_float_number(gh, NULL);
+                break;
+            case 9:
+                gh->p.data.sensor.gyr_y = parse_float_number(gh, NULL);
+                break;
+            case 10:
+                gh->p.data.sensor.gyr_z = parse_float_number(gh, NULL);
+                break;
+        }
+    } else if (gh->p.stat == STAT_QUECTEL_MOT) {
+        switch (gh->p.term_num) {
+            case 2:
+                gh->p.data.motion.peak_acc = parse_float_number(gh, NULL);
+                break;
+            case 3:
+                gh->p.data.motion.peak_ar = parse_float_number(gh, NULL);
+                break;
+        }
+#endif
 #if GPS_CFG_STATEMENT_PUBX
     } else if (gh->p.stat == STAT_UBX) {        /* Disambiguate generic PUBX statement */
         if (gh->p.term_str[0] == '0' && gh->p.term_str[1] == '4') {
@@ -523,7 +671,9 @@ copy_from_tmp_memory(gps_t* gh) {
         gh->altitude = gh->p.data.gga.altitude;
         gh->geo_sep = gh->p.data.gga.geo_sep;
         gh->sats_in_use = gh->p.data.gga.sats_in_use;
+        gh->dop_h = gh->p.data.gga.dop_h;
         gh->fix = gh->p.data.gga.fix;
+        // Log.info("gpsp fix: %u", gh->fix);
         gh->hours = gh->p.data.gga.hours;
         gh->minutes = gh->p.data.gga.minutes;
         gh->seconds = gh->p.data.gga.seconds;
@@ -554,6 +704,7 @@ copy_from_tmp_memory(gps_t* gh) {
         gh->date = gh->p.data.rmc.date;
         gh->month = gh->p.data.rmc.month;
         gh->year = gh->p.data.rmc.year;
+        gh->mode_ind = gh->p.data.rmc.mode_ind;
 #endif /* GPS_CFG_STATEMENT_GPRMC */
 #if GPS_CFG_STATEMENT_PUBX_TIME
     } else if (gh->p.stat == STAT_UBX_TIME) {
@@ -576,6 +727,49 @@ copy_from_tmp_memory(gps_t* gh) {
         gh->clk_drift = gh->p.data.time.clk_drift;
         gh->tp_gran = gh->p.data.time.tp_gran;
 #endif /* GPS_CFG_STATEMENT_PUBX_TIME */
+#if GPS_CFG_STATEMENT_QUECTEL
+    } else if ( (gh->p.stat >= STAT_QUECTEL_CAL) && (gh->p.stat <= STAT_QUECTEL_LAST) ) {
+        switch(gh->p.stat)
+        {
+            case STAT_QUECTEL_CAL:
+                gh->cal_state = gh->p.data.calstatus.cal_state; 
+                gh->nav_type = gh->p.data.calstatus.nav_type;
+                gh->msg_ver = gh->p.data.calstatus.msg_ver;
+                break;
+            case STAT_QUECTEL_EDE:
+                gh->epe_2d = gh->p.data.epe.epe_2d;
+                break;
+            case STAT_QUECTEL_IMU:
+                gh->imu_type = gh->p.data.imu.imu_type;
+                break;
+            case STAT_QUECTEL_SEN:
+                gh->temperature = gh->p.data.sensor.temperature;
+                gh->acc_x = gh->p.data.sensor.acc_x;
+                gh->acc_y = gh->p.data.sensor.acc_y;
+                gh->acc_z = gh->p.data.sensor.acc_z;
+                gh->gyr_y = gh->p.data.sensor.gyr_x;
+                gh->gyr_y = gh->p.data.sensor.gyr_y;
+                gh->gyr_y = gh->p.data.sensor.gyr_z;
+                break;
+            case STAT_QUECTEL_MOT:
+                gh->peak_acc = gh->p.data.motion.peak_acc;
+                gh->peak_ar  = gh->p.data.motion.peak_ar;
+                break;
+            case STAT_QUECTEL_VEH:
+                gh->veh_speed   = gh->p.data.veh.speed;
+                gh->wheel_tick  = gh->p.data.veh.wheel_tick;
+                gh->lf_speed    = gh->p.data.veh.lf_speed;
+                gh->lf_tick     = gh->p.data.veh.lf_tick;
+                gh->fwd_ind     = gh->p.data.veh.fwd_ind;
+                gh->rf_speed    = gh->p.data.veh.rf_speed;
+                gh->rf_tick     = gh->p.data.veh.rf_tick;
+                gh->lr_speed    = gh->p.data.veh.lr_speed;
+                gh->lr_tick     = gh->p.data.veh.lr_tick;
+                gh->rr_speed    = gh->p.data.veh.rr_speed;
+                gh->rr_tick     = gh->p.data.veh.rr_tick;
+                break;
+        }
+#endif /* GPS_CFG_STATEMENT_QUECTEL */        
     }
     return 1;
 }
@@ -628,6 +822,10 @@ gps_process(gps_t* gh, const void* data, size_t len) {
             TERM_NEXT(gh);                      /* Start with next term */
         } else if (*d == '\r') {
             if (check_crc(gh)) {                /* Check for CRC result */
+                if (STAT_GGA == gh->p.stat) {
+                    memset(gh->last_gga_sentence, 0, sizeof(gh->last_gga_sentence));
+                    strncpy(gh->last_gga_sentence, gh->sentence,gh->sentence_len );
+                }
                 /* CRC is OK, in theory we can copy data from statements to user data */
                 copy_from_tmp_memory(gh);       /* Copy memory from temporary to user memory */
 #if GPS_CFG_STATUS

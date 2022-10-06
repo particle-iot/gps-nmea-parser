@@ -139,6 +139,15 @@ extern "C" {
 
 /**
  * \brief           Enables `1` or disables `0` parsing and generation
+ *                  of Quectel messages
+ *
+ */
+#ifndef GPS_CFG_STATEMENT_QUECTEL
+#define GPS_CFG_STATEMENT_QUECTEL  1
+#endif
+
+/**
+ * \brief           Enables `1` or disables `0` parsing and generation
  *                  of PUBX (uBlox) TIME messages.
  *
  * \note            TIME messages can be used to obtain:
@@ -237,6 +246,13 @@ typedef enum {
     STAT_UBX_TIME   = 6,                        /*!< UBX TIME statement (uBlox specific) */
     STAT_UBX_POS    = 7,                        /*!< UBX POSITION statement (uBlox specific) */
     STAT_UBX_SVSTATUS = 8,                      /*!< UBX SVSTATUS statement (uBlox specific) */
+    STAT_QUECTEL_CAL  = 9,                      /*!< Quectel calibration message */
+    STAT_QUECTEL_EDE  = 10,                     /*!< Quectel estimated error message */
+    STAT_QUECTEL_VEH  = 11,                     /*!< Quectel wheeltick message */
+    STAT_QUECTEL_IMU  = 12,                     /*!< Quectel IMU message */
+    STAT_QUECTEL_SEN  = 13,                     /*!< Quectel sensor message */
+    STAT_QUECTEL_MOT  = 14,                     /*!< Quectel motion message */
+    STAT_QUECTEL_LAST = STAT_QUECTEL_MOT,
     STAT_CHECKSUM_FAIL = UINT8_MAX              /*!< Special case, used when checksum fails */
 } gps_statement_t;
 
@@ -299,6 +315,7 @@ typedef struct {
     uint8_t date;                               /*!< Fix date */
     uint8_t month;                              /*!< Fix month */
     uint8_t year;                               /*!< Fix year */
+    uint8_t mode_ind;                           /*!< Mode indicator */
 #endif /* GPS_CFG_STATEMENT_GPRMC || __DOXYGEN__ */
 
 #if GPS_CFG_STATEMENT_PUBX_TIME || __DOXYGEN__
@@ -340,6 +357,36 @@ typedef struct {
     gps_float_t v_accuracy;
 #endif /* GPS_CFG_STATEMENT_PUBX_TIME || __DOXYGEN__ */
 
+#if GPS_CFG_STATEMENT_QUECTEL
+    uint8_t      msg_ver;
+    uint8_t      cal_state;
+    uint8_t      nav_type;
+    char         last_gga_sentence[256];
+    gps_float_t  epe_2d;
+    uint8_t      imu_type;
+    gps_float_t  temperature;
+    gps_float_t  acc_x;
+    gps_float_t  acc_y;
+    gps_float_t  acc_z;
+    gps_float_t  gyr_x;
+    gps_float_t  gyr_y;
+    gps_float_t  gyr_z;
+    gps_float_t  peak_acc;
+    gps_float_t  peak_ar;
+    gps_float_t  veh_speed;
+    uint32_t     wheel_tick;
+    gps_float_t  lf_speed;
+    uint32_t     lf_tick;
+    uint8_t      fwd_ind;
+    gps_float_t  rf_speed;
+    uint32_t     rf_tick;
+    gps_float_t  lr_speed;
+    uint32_t     lr_tick;
+    gps_float_t  rr_speed;
+    uint32_t     rr_tick;
+
+#endif /* GPS_CFG_STATEMENT_QUECTEL */
+
 #if ! (defined(__DOXYGEN__) && __DOXYGEN__)
     struct {
         gps_statement_t stat;                   /*!< Statement index */
@@ -360,6 +407,7 @@ typedef struct {
                 gps_float_t altitude;           /*!< GPS altitude in meters */
                 gps_float_t geo_sep;            /*!< Geoid separation in units of meters */
                 uint8_t sats_in_use;            /*!< Number of satellites currently in use */
+                gps_float_t dop_h;              /*!< Horizontal dilution of precision */
                 uint8_t fix;                    /*!< Type of current fix, `0` = Invalid, `1` = GPS fix, `2` = Differential GPS fix */
                 uint8_t hours;                  /*!< Current UTC hours */
                 uint8_t minutes;                /*!< Current UTC minutes */
@@ -390,6 +438,7 @@ typedef struct {
                 gps_float_t speed;              /*!< Current spead over the ground in knots */
                 gps_float_t course;             /*!< Current course over ground */
                 gps_float_t variation;          /*!< Current magnetic variation in degrees */
+                char mode_ind;                  /*!< Mode indicator */
             } rmc;                              /*!< GPRMC message */
 #endif /* GPS_CFG_STATEMENT_GPRMC */
 #if GPS_CFG_STATEMENT_PUBX_TIME
@@ -430,6 +479,45 @@ typedef struct {
                 uint8_t sats_in_view;           /*!< Number of stallites in view */
             } svstatus;                              /*!< GPGSV message */
 #endif /* GPS_CFG_STATEMENT_PUBX_SVSTATUS */
+#if GPS_CFG_STATEMENT_QUECTEL
+            struct {
+                uint8_t msg_ver;                /*! Quectel message version */
+                uint8_t cal_state;              /*! Calibration state */
+                uint8_t nav_type;               /*! Navigation type */
+            } calstatus;
+            struct {
+                gps_float_t epe_2d;
+            } epe;
+            struct {
+                uint8_t imu_type;
+            } imu;
+            struct {
+                gps_float_t temperature;
+                gps_float_t acc_x;
+                gps_float_t acc_y;
+                gps_float_t acc_z;
+                gps_float_t gyr_x;
+                gps_float_t gyr_y;
+                gps_float_t gyr_z;
+            } sensor;
+            struct {
+                gps_float_t peak_acc;
+                gps_float_t peak_ar;
+            } motion;
+            struct {
+                gps_float_t speed;
+                uint32_t    wheel_tick;
+                gps_float_t lf_speed;
+                uint32_t    lf_tick;
+                uint8_t     fwd_ind;
+                gps_float_t rf_speed;
+                uint32_t    rf_tick;
+                gps_float_t lr_speed;
+                uint32_t    lr_tick;
+                gps_float_t rr_speed;
+                uint32_t    rr_tick;
+            } veh;
+#endif /* GPS_CFG_STATEMENT_QUECTEL */
         } data;                                 /*!< Union with data for each information */
     } p;                                        /*!< Structure with private data */
 #endif /* !__DOXYGEN__ */
