@@ -387,6 +387,9 @@ parse_term(gps_t* gh) {
             case 5:
                 gh->p.data.epe.epe_2d = parse_float_number(gh, NULL);
                 break;
+            case 6:
+                gh->p.data.epe.epe_3d = parse_float_number(gh, NULL);
+                break;
         }
     } else if (gh->p.stat == STAT_QUECTEL_VEH) {
         static uint8_t msg_type;
@@ -738,6 +741,7 @@ copy_from_tmp_memory(gps_t* gh) {
                 break;
             case STAT_QUECTEL_EDE:
                 gh->epe_2d = gh->p.data.epe.epe_2d;
+                gh->epe_3d = gh->p.data.epe.epe_3d;
                 break;
             case STAT_QUECTEL_IMU:
                 gh->imu_type = gh->p.data.imu.imu_type;

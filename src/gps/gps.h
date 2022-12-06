@@ -363,6 +363,7 @@ typedef struct {
     uint8_t      nav_type;
     char         last_gga_sentence[256];
     gps_float_t  epe_2d;
+    gps_float_t  epe_3d;
     uint8_t      imu_type;
     gps_float_t  temperature;
     gps_float_t  acc_x;
@@ -487,6 +488,7 @@ typedef struct {
             } calstatus;
             struct {
                 gps_float_t epe_2d;
+                gps_float_t epe_3d;
             } epe;
             struct {
                 uint8_t imu_type;
