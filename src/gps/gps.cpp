@@ -57,6 +57,10 @@
 #define CTN(x)              ((x) - '0')
 #define CHTN(x)             (((x) >= '0' && (x) <= '9') ? ((x) - '0') : (((x) >= 'a' && (x) <= 'z') ? ((x) - 'a' + 10) : (((x) >= 'A' && (x) <= 'Z') ? ((x) - 'A' + 10) : 0)))
 
+static uint8_t  gGsvType = 0;
+static uint32_t gSivTotal = 0;
+
+
 /**
  * \brief           Parse number as integer
  * \param[in]       gh: GPS handle
@@ -175,10 +179,24 @@ parse_term(gps_t* gh) {
             gh->p.stat = STAT_GSA;
 #endif /* GPS_CFG_STATEMENT_GPGSA */
 #if GPS_CFG_STATEMENT_GPGSV
-        } else if (!strncmp(gh->p.term_str, "$GPGSV", 6) || !strncmp(gh->p.term_str, "$GNGSV", 6) || 
-                   !strncmp(gh->p.term_str, "$GLGSV", 6) || !strncmp(gh->p.term_str, "$GAGSV", 6) || 
-                   !strncmp(gh->p.term_str, "$GBGSV", 6)) {
+        } else if( !strncmp(gh->p.term_str, "$GPGSV", 6) ) {
             gh->p.stat = STAT_GSV;
+            gGsvType = 0;
+        } else if( !strncmp(gh->p.term_str, "$GNGSV", 6) ) {
+            gh->p.stat = STAT_GSV;
+            gGsvType = 1;
+        } else if( !strncmp(gh->p.term_str, "$GLGSV", 6) ) {
+            gh->p.stat = STAT_GSV;
+            gGsvType = 2;
+        } else if( !strncmp(gh->p.term_str, "$GAGSV", 6) ) {
+            gh->p.stat = STAT_GSV;
+            gGsvType = 3;
+        } else if( !strncmp(gh->p.term_str, "$GBGSV", 6) ) {
+            gh->p.stat = STAT_GSV;
+            gGsvType = 4;
+        } else if( !strncmp(gh->p.term_str, "$GQGSV", 6) ) {
+            gh->p.stat = STAT_GSV;
+            gGsvType = 5;
 #endif /* GPS_CFG_STATEMENT_GPGSV */
 #if GPS_CFG_STATEMENT_GPRMC
         } else if (!strncmp(gh->p.term_str, "$GPRMC", 6) || !strncmp(gh->p.term_str, "$GNRMC", 6)) {
@@ -277,27 +295,45 @@ parse_term(gps_t* gh) {
 #endif /* GPS_CFG_STATEMENT_GPGSA */
 #if GPS_CFG_STATEMENT_GPGSV
     } else if (gh->p.stat == STAT_GSV) {        /* Process GPGSV statement */
+        static bool newCycle = false;
         switch (gh->p.term_num) {
             case 2:                             /* Current GPGSV statement number */
                 gh->p.data.gsv.stat_num = (uint8_t)parse_number(gh, NULL);
                 break;
             case 3:                             /* Process satellites in view */
-                gh->p.data.gsv.sats_in_view = (uint8_t)parse_number(gh, NULL);
+                if( 0 == gSivTotal ) {
+                    /* Flag this sentence as being the first in a set of GSV messages */
+                    newCycle = true;
+                }
+                gSivTotal += (uint8_t)parse_number(gh, NULL);
+                gh->p.data.gsv.sats_in_view = gSivTotal;
                 break;
             default:
 #if GPS_CFG_STATEMENT_SAT_DET
                 if (gh->p.term_num >= 4 && gh->p.term_num <= 19) {  /* Check current term number */
                     uint8_t index, term_num = gh->p.term_num - 4;   /* Normalize term number from 4-19 to 0-15 */
                     uint16_t value;
+                    uint16_t offset;
 
                     index = 4 * (gh->p.data.gsv.stat_num - 1) + term_num / 4;   /* Get array index */
+
+                    /* Check if new set of GSV messages is being parsed. Flag this so
+                       that the parser will accumulate the GSV messages instead
+                       of simply saving the last one received */
+                    if( true == newCycle ) {
+                        offset = 0;
+                        newCycle = false;
+                    }
+                    else {
+                        offset = gSivTotal;
+                    }
                     if (index < sizeof(gh->sats_in_view_desc) / sizeof(gh->sats_in_view_desc[0])) {
                         value = (uint16_t)parse_number(gh, NULL);   /* Parse number as integer */
                         switch (term_num % 4) {
-                            case 0: gh->sats_in_view_desc[index].num = value; break;
-                            case 1: gh->sats_in_view_desc[index].elevation = value; break;
-                            case 2: gh->sats_in_view_desc[index].azimuth = value; break;
-                            case 3: gh->sats_in_view_desc[index].snr = value; break;
+                            case 0: gh->sats_in_view_desc[index + offset].num = value; break;
+                            case 1: gh->sats_in_view_desc[index + offset].elevation = value; break;
+                            case 2: gh->sats_in_view_desc[index + offset].azimuth = value; break;
+                            case 3: gh->sats_in_view_desc[index + offset].snr = value; break;
                             default: break;
                         }
                     }
@@ -738,6 +774,9 @@ copy_from_tmp_memory(gps_t* gh) {
                 gh->cal_state = gh->p.data.calstatus.cal_state; 
                 gh->nav_type = gh->p.data.calstatus.nav_type;
                 gh->msg_ver = gh->p.data.calstatus.msg_ver;
+                /* This message is a delimiter to indicate all GSV messages have been received.
+                   Reset the counter of satellites in view for the next cycle. */
+                gSivTotal = 0;
                 break;
             case STAT_QUECTEL_EDE:
                 gh->epe_2d = gh->p.data.epe.epe_2d;

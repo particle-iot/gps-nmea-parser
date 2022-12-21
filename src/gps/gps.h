@@ -302,7 +302,9 @@ typedef struct {
     /* Information related to GPGSV statement */
     uint8_t sats_in_view;                       /*!< Number of satellites in view */
 #if GPS_CFG_STATEMENT_SAT_DET || (defined(__DOXYGEN__) && __DOXYGEN__)
-    gps_sat_t sats_in_view_desc[12];
+    #define NUM_GSV_TYPES   6
+    #define NUM_SAT_BANDS   2
+    gps_sat_t sats_in_view_desc[12*NUM_GSV_TYPES*NUM_SAT_BANDS];
 #endif
 #endif /* GPS_CFG_STATEMENT_GPGSV || __DOXYGEN__ */
 
