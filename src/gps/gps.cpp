@@ -296,46 +296,49 @@ parse_term(gps_t* gh) {
 #if GPS_CFG_STATEMENT_GPGSV
     } else if (gh->p.stat == STAT_GSV) {        /* Process GPGSV statement */
         static bool newCycle = false;
+        static uint8_t curGsv = 0x0F;
+        static uint8_t curStatement = 0;
         switch (gh->p.term_num) {
             case 2:                             /* Current GPGSV statement number */
-                gh->p.data.gsv.stat_num = (uint8_t)parse_number(gh, NULL);
+                curStatement = (uint8_t)parse_number(gh, NULL);
+                gh->p.data.gsv.stat_num = curStatement;
                 break;
             case 3:                             /* Process satellites in view */
                 if( 0 == gSivTotal ) {
                     /* Flag this sentence as being the first in a set of GSV messages */
                     newCycle = true;
                 }
-                gSivTotal += (uint8_t)parse_number(gh, NULL);
+                if( 1 == curStatement )
+                {
+                    /* A new series of GSV statements has been received. Start accumulating
+                       for every new series */
+                    curGsv = gGsvType;
+                    gSivTotal += (uint8_t)parse_number(gh, NULL);
+                }
                 gh->p.data.gsv.sats_in_view = gSivTotal;
                 break;
             default:
 #if GPS_CFG_STATEMENT_SAT_DET
                 if (gh->p.term_num >= 4 && gh->p.term_num <= 19) {  /* Check current term number */
-                    uint8_t index, term_num = gh->p.term_num - 4;   /* Normalize term number from 4-19 to 0-15 */
+                    uint8_t term_num = gh->p.term_num - 4;   /* Normalize term number from 4-19 to 0-15 */
                     uint16_t value;
-                    uint16_t offset;
-
-                    index = 4 * (gh->p.data.gsv.stat_num - 1) + term_num / 4;   /* Get array index */
+                    static uint16_t idx = 0; /* Keep a running count of satellites for this cycle */
 
                     /* Check if new set of GSV messages is being parsed. Flag this so
                        that the parser will accumulate the GSV messages instead
                        of simply saving the last one received */
                     if( true == newCycle ) {
-                        offset = 0;
                         newCycle = false;
+                        idx = 0;
                     }
-                    else {
-                        offset = gSivTotal;
-                    }
-                    if (index < sizeof(gh->sats_in_view_desc) / sizeof(gh->sats_in_view_desc[0])) {
-                        value = (uint16_t)parse_number(gh, NULL);   /* Parse number as integer */
-                        switch (term_num % 4) {
-                            case 0: gh->sats_in_view_desc[index + offset].num = value; break;
-                            case 1: gh->sats_in_view_desc[index + offset].elevation = value; break;
-                            case 2: gh->sats_in_view_desc[index + offset].azimuth = value; break;
-                            case 3: gh->sats_in_view_desc[index + offset].snr = value; break;
-                            default: break;
-                        }
+
+                    value = (uint16_t)parse_number(gh, NULL);   /* Parse number as integer */
+                    switch (term_num % 4) {
+                        case 0: gh->sats_in_view_desc[idx].num = value; break;
+                        case 1: gh->sats_in_view_desc[idx].elevation = value; break;
+                        case 2: gh->sats_in_view_desc[idx].azimuth = value; break;
+                        case 3: gh->sats_in_view_desc[idx].snr = value; idx++; break;
+                        default: break;
                     }
                 }
 #endif /* GPS_CFG_STATEMENT_SAT_DET */
