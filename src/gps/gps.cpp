@@ -177,6 +177,9 @@ parse_term(gps_t* gh) {
 #if GPS_CFG_STATEMENT_GPGSA
         } else if (!strncmp(gh->p.term_str, "$GPGSA", 6) || !strncmp(gh->p.term_str, "$GNGSA", 6)) {
             gh->p.stat = STAT_GSA;
+            /* This message is a delimiter to indicate all GSV messages have been received.
+               Reset the counter of satellites in view for the next cycle. */
+            gSivTotal = 0;
 #endif /* GPS_CFG_STATEMENT_GPGSA */
 #if GPS_CFG_STATEMENT_GPGSV
         } else if( !strncmp(gh->p.term_str, "$GPGSV", 6) ) {
@@ -337,7 +340,10 @@ parse_term(gps_t* gh) {
                         case 0: gh->sats_in_view_desc[idx].num = value; break;
                         case 1: gh->sats_in_view_desc[idx].elevation = value; break;
                         case 2: gh->sats_in_view_desc[idx].azimuth = value; break;
-                        case 3: gh->sats_in_view_desc[idx].snr = value; idx++; break;
+                        case 3: gh->sats_in_view_desc[idx].snr = value; 
+                                idx++; 
+                                // Log.info("gSivTotal: %d idx: %d gh: %d", gSivTotal, idx, gh->p.data.gsv.sats_in_view); 
+                                break;
                         default: break;
                     }
                 }
@@ -777,9 +783,6 @@ copy_from_tmp_memory(gps_t* gh) {
                 gh->cal_state = gh->p.data.calstatus.cal_state; 
                 gh->nav_type = gh->p.data.calstatus.nav_type;
                 gh->msg_ver = gh->p.data.calstatus.msg_ver;
-                /* This message is a delimiter to indicate all GSV messages have been received.
-                   Reset the counter of satellites in view for the next cycle. */
-                gSivTotal = 0;
                 break;
             case STAT_QUECTEL_EDE:
                 gh->epe_2d = gh->p.data.epe.epe_2d;
