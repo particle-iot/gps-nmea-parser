@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "gps/gps.h"
+#include "Particle.h"
 
 #define FLT(x)              ((gps_float_t)(x))
 #define D2R(x)              FLT(FLT(x) * FLT(0.01745329251994)) /*!< Degrees to radians */
@@ -55,6 +56,10 @@
 #define CIHN(x)             (((x) >= '0' && (x) <= '9') || ((x) >= 'a' && (x) <= 'f') || ((x) >= 'A' && (x) <= 'F'))
 #define CTN(x)              ((x) - '0')
 #define CHTN(x)             (((x) >= '0' && (x) <= '9') ? ((x) - '0') : (((x) >= 'a' && (x) <= 'z') ? ((x) - 'a' + 10) : (((x) >= 'A' && (x) <= 'Z') ? ((x) - 'A' + 10) : 0)))
+
+static uint8_t  GsvType = 0;
+static uint32_t SivTotal = 0;
+
 
 /**
  * \brief           Parse number as integer
@@ -172,10 +177,35 @@ parse_term(gps_t* gh) {
 #if GPS_CFG_STATEMENT_GPGSA
         } else if (!strncmp(gh->p.term_str, "$GPGSA", 6) || !strncmp(gh->p.term_str, "$GNGSA", 6)) {
             gh->p.stat = STAT_GSA;
+            /* This message is a delimiter to indicate all GSV messages have been received.
+               Reset the counter of satellites in view for the next cycle. */
+            SivTotal = 0;
 #endif /* GPS_CFG_STATEMENT_GPGSA */
 #if GPS_CFG_STATEMENT_GPGSV
-        } else if (!strncmp(gh->p.term_str, "$GPGSV", 6) || !strncmp(gh->p.term_str, "$GNGSV", 6)) {
+        } else if( !strncmp(gh->p.term_str, "$G", 2) && (!strncmp(&gh->p.term_str[3], "GSV", 3)) ) {
             gh->p.stat = STAT_GSV;
+            switch( gh->p.term_str[2] ) {
+                case 'P':
+                    GsvType = 0;
+                    break;
+                case 'N':
+                    GsvType = 1;
+                    break;
+                case 'L':
+                    GsvType = 2;
+                    break;
+                case 'A':
+                    GsvType = 3;
+                    break;
+                case 'B':
+                    GsvType = 4;
+                    break;
+                case 'Q':
+                    GsvType = 5;
+                    break;
+                default:
+                    break;
+            }
 #endif /* GPS_CFG_STATEMENT_GPGSV */
 #if GPS_CFG_STATEMENT_GPRMC
         } else if (!strncmp(gh->p.term_str, "$GPRMC", 6) || !strncmp(gh->p.term_str, "$GNRMC", 6)) {
@@ -185,6 +215,20 @@ parse_term(gps_t* gh) {
         } else if (!strncmp(gh->p.term_str, "$PUBX", 5)) {
             gh->p.stat = STAT_UBX;
 #endif /* GPS_CFG_STATEMENT_PUBX */
+#if GPS_CFG_STATEMENT_QUECTEL
+        } else if (!strncmp(gh->p.term_str, "$PQTMDRCAL", 10)) {
+            gh->p.stat = STAT_QUECTEL_CAL;
+        } else if (!strncmp(gh->p.term_str, "$PQTMEPE", 8)) {
+            gh->p.stat = STAT_QUECTEL_EDE;
+        } else if (!strncmp(gh->p.term_str, "$PQTMVEHMSG", 11)) {
+            gh->p.stat = STAT_QUECTEL_VEH;
+        } else if (!strncmp(gh->p.term_str, "$PQTMIMUTYPE", 12)) {
+            gh->p.stat = STAT_QUECTEL_IMU;
+        } else if (!strncmp(gh->p.term_str, "$PQTMSENMSG", 11)) {
+            gh->p.stat = STAT_QUECTEL_SEN;
+        } else if (!strncmp(gh->p.term_str, "$PQTMVEHMOT", 11)) {
+            gh->p.stat = STAT_QUECTEL_MOT;
+#endif /* GPS_CFG_STATEMENT_QUECTEL */
         } else {
             gh->p.stat = STAT_UNKNOWN;          /* Invalid statement for library */
         }
@@ -223,6 +267,9 @@ parse_term(gps_t* gh) {
             case 7:                             /* Satellites in use */
                 gh->p.data.gga.sats_in_use = (uint8_t)parse_number(gh, NULL);
                 break;
+            case 8:                             /* Process HDOP */
+                gh->p.data.gga.dop_h = parse_float_number(gh, NULL);
+                break;
             case 9:                             /* Altitude */
                 gh->p.data.gga.altitude = parse_float_number(gh, NULL);
                 break;
@@ -257,29 +304,50 @@ parse_term(gps_t* gh) {
 #endif /* GPS_CFG_STATEMENT_GPGSA */
 #if GPS_CFG_STATEMENT_GPGSV
     } else if (gh->p.stat == STAT_GSV) {        /* Process GPGSV statement */
+        static bool newCycle = false;
+        static uint8_t curStatement = 0;
         switch (gh->p.term_num) {
             case 2:                             /* Current GPGSV statement number */
-                gh->p.data.gsv.stat_num = (uint8_t)parse_number(gh, NULL);
+                curStatement = (uint8_t)parse_number(gh, NULL);
+                gh->p.data.gsv.stat_num = curStatement;
                 break;
             case 3:                             /* Process satellites in view */
-                gh->p.data.gsv.sats_in_view = (uint8_t)parse_number(gh, NULL);
+                if( 0 == SivTotal ) {
+                    /* Flag this sentence as being the first in a set of GSV messages */
+                    newCycle = true;
+                }
+                if( 1 == curStatement )
+                {
+                    /* A new series of GSV statements has been received. Start accumulating
+                       for every new series */
+                    SivTotal += (uint8_t)parse_number(gh, NULL);
+                }
+                gh->p.data.gsv.sats_in_view = SivTotal;
                 break;
             default:
 #if GPS_CFG_STATEMENT_SAT_DET
                 if (gh->p.term_num >= 4 && gh->p.term_num <= 19) {  /* Check current term number */
-                    uint8_t index, term_num = gh->p.term_num - 4;   /* Normalize term number from 4-19 to 0-15 */
+                    uint8_t term_num = gh->p.term_num - 4;   /* Normalize term number from 4-19 to 0-15 */
                     uint16_t value;
+                    static uint16_t idx = 0; /* Keep a running count of satellites for this cycle */
 
-                    index = 4 * (gh->p.data.gsv.stat_num - 1) + term_num / 4;   /* Get array index */
-                    if (index < sizeof(gh->sats_in_view_desc) / sizeof(gh->sats_in_view_desc[0])) {
-                        value = (uint16_t)parse_number(gh, NULL);   /* Parse number as integer */
-                        switch (term_num % 4) {
-                            case 0: gh->sats_in_view_desc[index].num = value; break;
-                            case 1: gh->sats_in_view_desc[index].elevation = value; break;
-                            case 2: gh->sats_in_view_desc[index].azimuth = value; break;
-                            case 3: gh->sats_in_view_desc[index].snr = value; break;
-                            default: break;
-                        }
+                    /* Check if new set of GSV messages is being parsed. Flag this so
+                       that the parser will accumulate the GSV messages instead
+                       of simply saving the last one received */
+                    if( newCycle ) {
+                        newCycle = false;
+                        idx = 0;
+                    }
+
+                    value = (uint16_t)parse_number(gh, NULL);   /* Parse number as integer */
+                    switch (term_num % 4) {
+                        case 0: gh->sats_in_view_desc[idx].num = value; break;
+                        case 1: gh->sats_in_view_desc[idx].elevation = value; break;
+                        case 2: gh->sats_in_view_desc[idx].azimuth = value; break;
+                        case 3: gh->sats_in_view_desc[idx].snr = value;
+                                idx++;
+                                break;
+                        default: break;
                     }
                 }
 #endif /* GPS_CFG_STATEMENT_SAT_DET */
@@ -342,9 +410,144 @@ parse_term(gps_t* gh) {
                     gh->p.data.rmc.variation = -gh->p.data.rmc.variation;
                 }
                 break;
+            case 12:
+                gh->p.data.rmc.mode_ind = gh->p.term_str[0];
+                break;
             default: break;
         }
 #endif /* GPS_CFG_STATEMENT_GPRMC */
+
+#if GPS_CFG_STATEMENT_QUECTEL
+    } else if (gh->p.stat == STAT_QUECTEL_CAL) {
+        switch (gh->p.term_num) {
+            case 1:
+                gh->p.data.calstatus.msg_ver = (uint8_t)parse_number(gh, NULL);
+                break;
+            case 2:                             /* Process calibration state */
+                gh->p.data.calstatus.cal_state = (uint8_t)parse_number(gh, NULL);
+                break;
+            case 3:
+                gh->p.data.calstatus.nav_type = (uint8_t)parse_number(gh, NULL);
+                break;
+        }
+    } else if (gh->p.stat == STAT_QUECTEL_EDE) {
+        switch (gh->p.term_num) {
+            case 5:
+                gh->p.data.epe.epe_2d = parse_float_number(gh, NULL);
+                break;
+            case 6:
+                gh->p.data.epe.epe_3d = parse_float_number(gh, NULL);
+                break;
+        }
+    } else if (gh->p.stat == STAT_QUECTEL_VEH) {
+        static uint8_t msg_type;
+        switch (gh->p.term_num) {
+            case 1:
+                msg_type = (uint8_t)parse_number(gh, NULL);
+                break;
+            case 3:
+                switch( msg_type ) {
+                    case 1:
+                        gh->p.data.veh.speed = parse_float_number(gh, NULL);
+                        break;
+                    case 2:
+                        gh->p.data.veh.wheel_tick = parse_number(gh, NULL);
+                        break;
+                    case 3:
+                        gh->p.data.veh.lf_speed = parse_float_number(gh, NULL);
+                        break;
+                    case 4:
+                        gh->p.data.veh.lf_tick = parse_number(gh, NULL);
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case 4:
+                switch( msg_type ) {
+                    case 2:
+                        gh->p.data.veh.fwd_ind = (uint8_t)parse_number(gh, NULL);
+                        break;
+                    case 3:
+                        gh->p.data.veh.rf_speed = parse_float_number(gh, NULL);
+                        break;
+                    case 4:
+                        gh->p.data.veh.rf_tick = parse_number(gh, NULL);
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case 5:
+                switch( msg_type ) {
+                    case 3:
+                        gh->p.data.veh.lr_speed = parse_float_number(gh, NULL);
+                        break;
+                    case 4:
+                        gh->p.data.veh.lr_tick = parse_number(gh, NULL);
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case 6:
+                switch( msg_type ) {
+                    case 3:
+                        gh->p.data.veh.rr_speed = parse_float_number(gh, NULL);
+                        break;
+                    case 4:
+                        gh->p.data.veh.rr_tick = parse_number(gh, NULL);
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case 7:
+                if( 4 == msg_type ) {
+                    gh->p.data.veh.fwd_ind = parse_number(gh, NULL);
+                }
+                break;
+        }
+    } else if (gh->p.stat == STAT_QUECTEL_IMU) {
+        switch (gh->p.term_num) {
+            case 2:
+                gh->p.data.imu.imu_type = (uint8_t)parse_number(gh, NULL);
+                break;
+        }
+    } else if (gh->p.stat == STAT_QUECTEL_SEN) {
+        switch (gh->p.term_num) {
+            case 4:
+                gh->p.data.sensor.temperature = parse_float_number(gh, NULL);
+                break;
+            case 5:
+                gh->p.data.sensor.acc_x = parse_float_number(gh, NULL);
+                break;
+            case 6:
+                gh->p.data.sensor.acc_y = parse_float_number(gh, NULL);
+                break;
+            case 7:
+                gh->p.data.sensor.acc_z = parse_float_number(gh, NULL);
+                break;
+            case 8:
+                gh->p.data.sensor.gyr_x = parse_float_number(gh, NULL);
+                break;
+            case 9:
+                gh->p.data.sensor.gyr_y = parse_float_number(gh, NULL);
+                break;
+            case 10:
+                gh->p.data.sensor.gyr_z = parse_float_number(gh, NULL);
+                break;
+        }
+    } else if (gh->p.stat == STAT_QUECTEL_MOT) {
+        switch (gh->p.term_num) {
+            case 2:
+                gh->p.data.motion.peak_acc = parse_float_number(gh, NULL);
+                break;
+            case 3:
+                gh->p.data.motion.peak_ar = parse_float_number(gh, NULL);
+                break;
+        }
+#endif
 #if GPS_CFG_STATEMENT_PUBX
     } else if (gh->p.stat == STAT_UBX) {        /* Disambiguate generic PUBX statement */
         if (gh->p.term_str[0] == '0' && gh->p.term_str[1] == '4') {
@@ -523,6 +726,7 @@ copy_from_tmp_memory(gps_t* gh) {
         gh->altitude = gh->p.data.gga.altitude;
         gh->geo_sep = gh->p.data.gga.geo_sep;
         gh->sats_in_use = gh->p.data.gga.sats_in_use;
+        gh->dop_h = gh->p.data.gga.dop_h;
         gh->fix = gh->p.data.gga.fix;
         gh->hours = gh->p.data.gga.hours;
         gh->minutes = gh->p.data.gga.minutes;
@@ -554,6 +758,7 @@ copy_from_tmp_memory(gps_t* gh) {
         gh->date = gh->p.data.rmc.date;
         gh->month = gh->p.data.rmc.month;
         gh->year = gh->p.data.rmc.year;
+        gh->mode_ind = gh->p.data.rmc.mode_ind;
 #endif /* GPS_CFG_STATEMENT_GPRMC */
 #if GPS_CFG_STATEMENT_PUBX_TIME
     } else if (gh->p.stat == STAT_UBX_TIME) {
@@ -576,6 +781,50 @@ copy_from_tmp_memory(gps_t* gh) {
         gh->clk_drift = gh->p.data.time.clk_drift;
         gh->tp_gran = gh->p.data.time.tp_gran;
 #endif /* GPS_CFG_STATEMENT_PUBX_TIME */
+#if GPS_CFG_STATEMENT_QUECTEL
+    } else if ( (gh->p.stat >= STAT_QUECTEL_CAL) && (gh->p.stat <= STAT_QUECTEL_LAST) ) {
+        switch(gh->p.stat)
+        {
+            case STAT_QUECTEL_CAL:
+                gh->cal_state = gh->p.data.calstatus.cal_state;
+                gh->nav_type = gh->p.data.calstatus.nav_type;
+                gh->msg_ver = gh->p.data.calstatus.msg_ver;
+                break;
+            case STAT_QUECTEL_EDE:
+                gh->epe_2d = gh->p.data.epe.epe_2d;
+                gh->epe_3d = gh->p.data.epe.epe_3d;
+                break;
+            case STAT_QUECTEL_IMU:
+                gh->imu_type = gh->p.data.imu.imu_type;
+                break;
+            case STAT_QUECTEL_SEN:
+                gh->temperature = gh->p.data.sensor.temperature;
+                gh->acc_x = gh->p.data.sensor.acc_x;
+                gh->acc_y = gh->p.data.sensor.acc_y;
+                gh->acc_z = gh->p.data.sensor.acc_z;
+                gh->gyr_y = gh->p.data.sensor.gyr_x;
+                gh->gyr_y = gh->p.data.sensor.gyr_y;
+                gh->gyr_y = gh->p.data.sensor.gyr_z;
+                break;
+            case STAT_QUECTEL_MOT:
+                gh->peak_acc = gh->p.data.motion.peak_acc;
+                gh->peak_ar  = gh->p.data.motion.peak_ar;
+                break;
+            case STAT_QUECTEL_VEH:
+                gh->veh_speed   = gh->p.data.veh.speed;
+                gh->wheel_tick  = gh->p.data.veh.wheel_tick;
+                gh->lf_speed    = gh->p.data.veh.lf_speed;
+                gh->lf_tick     = gh->p.data.veh.lf_tick;
+                gh->fwd_ind     = gh->p.data.veh.fwd_ind;
+                gh->rf_speed    = gh->p.data.veh.rf_speed;
+                gh->rf_tick     = gh->p.data.veh.rf_tick;
+                gh->lr_speed    = gh->p.data.veh.lr_speed;
+                gh->lr_tick     = gh->p.data.veh.lr_tick;
+                gh->rr_speed    = gh->p.data.veh.rr_speed;
+                gh->rr_tick     = gh->p.data.veh.rr_tick;
+                break;
+        }
+#endif /* GPS_CFG_STATEMENT_QUECTEL */
     }
     return 1;
 }
@@ -628,6 +877,10 @@ gps_process(gps_t* gh, const void* data, size_t len) {
             TERM_NEXT(gh);                      /* Start with next term */
         } else if (*d == '\r') {
             if (check_crc(gh)) {                /* Check for CRC result */
+                if (STAT_GGA == gh->p.stat) {
+                    memset(gh->last_gga_sentence, 0, sizeof(gh->last_gga_sentence));
+                    strncpy(gh->last_gga_sentence, gh->sentence,gh->sentence_len );
+                }
                 /* CRC is OK, in theory we can copy data from statements to user data */
                 copy_from_tmp_memory(gh);       /* Copy memory from temporary to user memory */
 #if GPS_CFG_STATUS
