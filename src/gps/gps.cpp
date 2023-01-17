@@ -344,8 +344,8 @@ parse_term(gps_t* gh) {
                         case 0: gh->sats_in_view_desc[idx].num = value; break;
                         case 1: gh->sats_in_view_desc[idx].elevation = value; break;
                         case 2: gh->sats_in_view_desc[idx].azimuth = value; break;
-                        case 3: gh->sats_in_view_desc[idx].snr = value; 
-                                idx++;  
+                        case 3: gh->sats_in_view_desc[idx].snr = value;
+                                idx++;
                                 break;
                         default: break;
                     }
@@ -786,7 +786,7 @@ copy_from_tmp_memory(gps_t* gh) {
         switch(gh->p.stat)
         {
             case STAT_QUECTEL_CAL:
-                gh->cal_state = gh->p.data.calstatus.cal_state; 
+                gh->cal_state = gh->p.data.calstatus.cal_state;
                 gh->nav_type = gh->p.data.calstatus.nav_type;
                 gh->msg_ver = gh->p.data.calstatus.msg_ver;
                 break;
@@ -824,7 +824,7 @@ copy_from_tmp_memory(gps_t* gh) {
                 gh->rr_tick     = gh->p.data.veh.rr_tick;
                 break;
         }
-#endif /* GPS_CFG_STATEMENT_QUECTEL */        
+#endif /* GPS_CFG_STATEMENT_QUECTEL */
     }
     return 1;
 }
