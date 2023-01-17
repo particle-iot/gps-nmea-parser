@@ -57,8 +57,8 @@
 #define CTN(x)              ((x) - '0')
 #define CHTN(x)             (((x) >= '0' && (x) <= '9') ? ((x) - '0') : (((x) >= 'a' && (x) <= 'z') ? ((x) - 'a' + 10) : (((x) >= 'A' && (x) <= 'Z') ? ((x) - 'A' + 10) : 0)))
 
-static uint8_t  gGsvType = 0;
-static uint32_t gSivTotal = 0;
+static uint8_t  GsvType = 0;
+static uint32_t SivTotal = 0;
 
 
 /**
@@ -179,27 +179,33 @@ parse_term(gps_t* gh) {
             gh->p.stat = STAT_GSA;
             /* This message is a delimiter to indicate all GSV messages have been received.
                Reset the counter of satellites in view for the next cycle. */
-            gSivTotal = 0;
+            SivTotal = 0;
 #endif /* GPS_CFG_STATEMENT_GPGSA */
 #if GPS_CFG_STATEMENT_GPGSV
-        } else if( !strncmp(gh->p.term_str, "$GPGSV", 6) ) {
+        } else if( !strncmp(gh->p.term_str, "$G", 2) && (!strncmp(&gh->p.term_str[3], "GSV", 3)) ) {
             gh->p.stat = STAT_GSV;
-            gGsvType = 0;
-        } else if( !strncmp(gh->p.term_str, "$GNGSV", 6) ) {
-            gh->p.stat = STAT_GSV;
-            gGsvType = 1;
-        } else if( !strncmp(gh->p.term_str, "$GLGSV", 6) ) {
-            gh->p.stat = STAT_GSV;
-            gGsvType = 2;
-        } else if( !strncmp(gh->p.term_str, "$GAGSV", 6) ) {
-            gh->p.stat = STAT_GSV;
-            gGsvType = 3;
-        } else if( !strncmp(gh->p.term_str, "$GBGSV", 6) ) {
-            gh->p.stat = STAT_GSV;
-            gGsvType = 4;
-        } else if( !strncmp(gh->p.term_str, "$GQGSV", 6) ) {
-            gh->p.stat = STAT_GSV;
-            gGsvType = 5;
+            switch( gh->p.term_str[2] ) {
+                case 'P':
+                    GsvType = 0;
+                    break;
+                case 'N':
+                    GsvType = 1;
+                    break;
+                case 'L':
+                    GsvType = 2;
+                    break;
+                case 'A':
+                    GsvType = 3;
+                    break;
+                case 'B':
+                    GsvType = 4;
+                    break;
+                case 'Q':
+                    GsvType = 5;
+                    break;
+                default:
+                    break;
+            }
 #endif /* GPS_CFG_STATEMENT_GPGSV */
 #if GPS_CFG_STATEMENT_GPRMC
         } else if (!strncmp(gh->p.term_str, "$GPRMC", 6) || !strncmp(gh->p.term_str, "$GNRMC", 6)) {
@@ -299,7 +305,6 @@ parse_term(gps_t* gh) {
 #if GPS_CFG_STATEMENT_GPGSV
     } else if (gh->p.stat == STAT_GSV) {        /* Process GPGSV statement */
         static bool newCycle = false;
-        static uint8_t curGsv = 0x0F;
         static uint8_t curStatement = 0;
         switch (gh->p.term_num) {
             case 2:                             /* Current GPGSV statement number */
@@ -307,7 +312,7 @@ parse_term(gps_t* gh) {
                 gh->p.data.gsv.stat_num = curStatement;
                 break;
             case 3:                             /* Process satellites in view */
-                if( 0 == gSivTotal ) {
+                if( 0 == SivTotal ) {
                     /* Flag this sentence as being the first in a set of GSV messages */
                     newCycle = true;
                 }
@@ -315,10 +320,9 @@ parse_term(gps_t* gh) {
                 {
                     /* A new series of GSV statements has been received. Start accumulating
                        for every new series */
-                    curGsv = gGsvType;
-                    gSivTotal += (uint8_t)parse_number(gh, NULL);
+                    SivTotal += (uint8_t)parse_number(gh, NULL);
                 }
-                gh->p.data.gsv.sats_in_view = gSivTotal;
+                gh->p.data.gsv.sats_in_view = SivTotal;
                 break;
             default:
 #if GPS_CFG_STATEMENT_SAT_DET
@@ -330,7 +334,7 @@ parse_term(gps_t* gh) {
                     /* Check if new set of GSV messages is being parsed. Flag this so
                        that the parser will accumulate the GSV messages instead
                        of simply saving the last one received */
-                    if( true == newCycle ) {
+                    if( newCycle ) {
                         newCycle = false;
                         idx = 0;
                     }
@@ -341,8 +345,7 @@ parse_term(gps_t* gh) {
                         case 1: gh->sats_in_view_desc[idx].elevation = value; break;
                         case 2: gh->sats_in_view_desc[idx].azimuth = value; break;
                         case 3: gh->sats_in_view_desc[idx].snr = value; 
-                                idx++; 
-                                // Log.info("gSivTotal: %d idx: %d gh: %d", gSivTotal, idx, gh->p.data.gsv.sats_in_view); 
+                                idx++;  
                                 break;
                         default: break;
                     }
@@ -443,60 +446,64 @@ parse_term(gps_t* gh) {
                 msg_type = (uint8_t)parse_number(gh, NULL);
                 break;
             case 3:
-                if( 1 == msg_type )
-                {
-                    gh->p.data.veh.speed = parse_float_number(gh, NULL);
-                }
-                else if( 2 == msg_type )
-                {
-                    gh->p.data.veh.wheel_tick = parse_number(gh, NULL);
-                }
-                else if( 3 == msg_type )
-                {
-                    gh->p.data.veh.lf_speed = parse_float_number(gh, NULL);
-                }
-                else if( 4 == msg_type )
-                {
-                    gh->p.data.veh.lf_tick = parse_number(gh, NULL);
+                switch( msg_type ) {
+                    case 1:
+                        gh->p.data.veh.speed = parse_float_number(gh, NULL);
+                        break;
+                    case 2:
+                        gh->p.data.veh.wheel_tick = parse_number(gh, NULL);
+                        break;
+                    case 3:
+                        gh->p.data.veh.lf_speed = parse_float_number(gh, NULL);
+                        break;
+                    case 4:
+                        gh->p.data.veh.lf_tick = parse_number(gh, NULL);
+                        break;
+                    default:
+                        break;
                 }
                 break;
             case 4:
-                if( 2 == msg_type )
-                {
-                    gh->p.data.veh.fwd_ind = (uint8_t)parse_number(gh, NULL);
-                }
-                else if( 3 == msg_type )
-                {
-                    gh->p.data.veh.rf_speed = parse_float_number(gh, NULL);
-                }
-                else if( 4 == msg_type )
-                {
-                    gh->p.data.veh.rf_tick = parse_number(gh, NULL);
+                switch( msg_type ) {
+                    case 2:
+                        gh->p.data.veh.fwd_ind = (uint8_t)parse_number(gh, NULL);
+                        break;
+                    case 3:
+                        gh->p.data.veh.rf_speed = parse_float_number(gh, NULL);
+                        break;
+                    case 4:
+                        gh->p.data.veh.rf_tick = parse_number(gh, NULL);
+                        break;
+                    default:
+                        break;
                 }
                 break;
             case 5:
-                if( 3 == msg_type )
-                {
-                    gh->p.data.veh.lr_speed = parse_float_number(gh, NULL);
-                }
-                else if( 4 == msg_type )
-                {
-                    gh->p.data.veh.lr_tick = parse_number(gh, NULL);
+                switch( msg_type ) {
+                    case 3:
+                        gh->p.data.veh.lr_speed = parse_float_number(gh, NULL);
+                        break;
+                    case 4:
+                        gh->p.data.veh.lr_tick = parse_number(gh, NULL);
+                        break;
+                    default:
+                        break;
                 }
                 break;
             case 6:
-                if( 3 == msg_type )
-                {
-                    gh->p.data.veh.rr_speed = parse_float_number(gh, NULL);
-                }
-                else if( 4 == msg_type )
-                {
-                    gh->p.data.veh.rr_tick = parse_number(gh, NULL);
+                switch( msg_type ) {
+                    case 3:
+                        gh->p.data.veh.rr_speed = parse_float_number(gh, NULL);
+                        break;
+                    case 4:
+                        gh->p.data.veh.rr_tick = parse_number(gh, NULL);
+                        break;
+                    default:
+                        break;
                 }
                 break;
             case 7:
-                if( 4 == msg_type )
-                {
+                if( 4 == msg_type ) {
                     gh->p.data.veh.fwd_ind = parse_number(gh, NULL);
                 }
                 break;
@@ -721,7 +728,6 @@ copy_from_tmp_memory(gps_t* gh) {
         gh->sats_in_use = gh->p.data.gga.sats_in_use;
         gh->dop_h = gh->p.data.gga.dop_h;
         gh->fix = gh->p.data.gga.fix;
-        // Log.info("gpsp fix: %u", gh->fix);
         gh->hours = gh->p.data.gga.hours;
         gh->minutes = gh->p.data.gga.minutes;
         gh->seconds = gh->p.data.gga.seconds;
